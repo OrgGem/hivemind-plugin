@@ -1,5 +1,5 @@
 /**
- * HiveMind Init — Interactive project initialization.
+ * HiveMind Init — One-command project initialization.
  *
  * Creates:
  *   - .opencode/planning/ directory structure
@@ -7,9 +7,10 @@
  *   - active.md with LOCKED status
  *   - brain.json with initial state
  *   - config.json with governance preferences
+ *   - Auto-registers plugin in opencode.json
  */
 
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { GovernanceMode, Language, ExpertLevel, OutputStyle } from "../schemas/config.js"
 import { createConfig, isValidGovernanceMode, isValidLanguage, isValidExpertLevel, isValidOutputStyle } from "../schemas/config.js"
@@ -30,6 +31,58 @@ export interface InitOptions {
 // eslint-disable-next-line no-console
 const log = (msg: string) => console.log(msg)
 
+const PLUGIN_NAME = "hivemind-context-governance"
+
+/**
+ * Auto-register the HiveMind plugin in opencode.json.
+ * Creates the file if it doesn't exist.
+ * Adds the plugin if not already registered.
+ */
+function registerPluginInConfig(directory: string, silent: boolean): void {
+  const configPath = join(directory, "opencode.json")
+
+  let config: Record<string, unknown> = {}
+
+  if (existsSync(configPath)) {
+    try {
+      const raw = readFileSync(configPath, "utf-8")
+      config = JSON.parse(raw)
+    } catch {
+      // Malformed JSON — overwrite
+      config = {}
+    }
+  }
+
+  // Ensure plugin array exists
+  if (!Array.isArray(config.plugin)) {
+    config.plugin = []
+  }
+
+  const plugins = config.plugin as string[]
+
+  // Check if already registered (exact match or versioned match)
+  const alreadyRegistered = plugins.some(
+    (p) => p === PLUGIN_NAME || p.startsWith(PLUGIN_NAME + "@")
+  )
+
+  if (alreadyRegistered) {
+    if (!silent) {
+      log(`  ✓ Plugin already registered in opencode.json`)
+    }
+    return
+  }
+
+  plugins.push(PLUGIN_NAME)
+  config.plugin = plugins
+
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8")
+
+  if (!silent) {
+    log(`  ✓ Plugin registered in opencode.json`)
+    log(`    → OpenCode will auto-install on next launch`)
+  }
+}
+
 export async function initProject(
   directory: string,
   options: InitOptions = {}
@@ -43,7 +96,7 @@ export async function initProject(
     if (!options.silent) {
       log("⚠ HiveMind already initialized in this project.")
       log(`  Directory: ${planningDir}`)
-      log("  Use 'hivemind status' to see current state.")
+      log("  Use 'npx hivemind-context-governance status' to see current state.")
     }
     return
   }
@@ -129,6 +182,9 @@ export async function initProject(
   const state = createBrainState(sessionId, config)
   await stateManager.save(state)
 
+  // Auto-register plugin in opencode.json
+  registerPluginInConfig(directory, options.silent ?? false)
+
   if (!options.silent) {
     log("")
     log("✓ Planning directory created:")
@@ -152,8 +208,7 @@ export async function initProject(
     }
 
     log("")
-    log("Add HiveMind to your opencode.json:")
-    log('  "plugin": ["file://<path-to-hivemind>/src/index.ts"]')
+    log("✅ Done! Open OpenCode in this project — HiveMind is active.")
     log("")
   }
 }

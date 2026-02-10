@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-02-11
+
+### Added
+- **One-command install** — `npx hivemind-context-governance` sets up everything in one step
+- **Auto-registration** — Plugin automatically registers itself in `opencode.json` during init (creates file if needed)
+- Dual bin entries: both `npx hivemind-context-governance` and `npx hivemind` work
+- `#!/usr/bin/env node` shebang for cross-platform npx compatibility
+- `example-opencode.json` for SDK publishing checklist
+
+### Changed
+- CLI default command changed from `help` to `init` — bare `npx` invocation runs setup
+- Dashboard import changed to lazy `await import()` — prevents crash when dashboard deps unavailable
+- Moved sentiment detection from `experimental.chat.system.transform` to `chat.message` hook (SDK compatibility)
+- Removed explicit hook type annotations — let TypeScript infer from SDK
+- Removed manual "add to opencode.json" instructions — it's automatic now
+- peerDependencies `@opencode-ai/plugin` changed from `^0.x` to `*` (any version)
+
+### Fixed
+- Config key corrected from `"plugins"` (plural) to `"plugin"` (singular) per OpenCode spec
+- Removed dead peer deps (`@opentui/react`, `@opentui/core`, `react`)
+- Added `@opencode-ai/plugin` to devDependencies (was only in peerDependencies)
+
 ## [1.2.1] - 2026-02-11
 
 ### Fixed

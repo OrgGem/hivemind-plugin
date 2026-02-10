@@ -17,54 +17,41 @@ HiveMind provides **soft governance** for AI-assisted development — it tracks 
 - **Complexity Nudges**: Gentle warnings when sessions get complex (3+ files or 5+ turns)
 - **Self-Rating**: Agent self-assessment for drift tracking (1-10 scale)
 
-## Quick Start
+## Installation
 
-### 1. Install
-
-**Option A: Git clone + file:// (recommended for now)**
+One command. That's it.
 
 ```bash
-# Clone the plugin into your project
-git clone https://github.com/shynlee04/hivemind-plugin.git .hivemind
+npx hivemind-context-governance
 ```
 
-Then add to your `opencode.json`:
+This does everything:
+1. Creates `.opencode/planning/` with session state files
+2. Registers HiveMind in your `opencode.json` automatically
+3. Next time you open OpenCode, HiveMind is active
 
-```json
-{
-  "plugin": ["file://.hivemind/src/index.ts"]
-}
-```
+> **No cloning. No manual JSON editing. No `npm install`.** OpenCode auto-installs npm plugins at runtime.
 
-> OpenCode loads TypeScript directly via Bun — no build step needed.
-
-**Option B: npm (after npm publish)**
-
-```json
-{
-  "plugin": ["hivemind-context-governance"]
-}
-```
-
-> OpenCode auto-installs npm plugins on launch. No `npm install` needed.
-
-### 2. Initialize
+### Options
 
 ```bash
-# Initialize HiveMind in your project
-npx hivemind init
-
-# Or with options
-npx hivemind init --mode strict --lang en
+npx hivemind-context-governance --mode strict --lang en
 ```
 
-This creates `.opencode/planning/` with:
-- `index.md` — Project trajectory and history
-- `active.md` — Current session state
-- `brain.json` — Machine-readable state
-- `config.json` — Governance settings
+| Option | Values | Default |
+|--------|--------|---------|
+| `--mode` | `strict`, `assisted`, `permissive` | `assisted` |
+| `--lang` | `en`, `vi` | `en` |
 
-### 3. Use the Tools
+### Other CLI Commands
+
+```bash
+npx hivemind-context-governance status     # Show current state
+npx hivemind-context-governance compact    # Manual compaction info
+npx hivemind-context-governance help       # Show help
+```
+
+## Using the Tools
 
 Within OpenCode, use the 4 lifecycle tools:
 
@@ -103,21 +90,9 @@ compact_session({
 | **assisted** | Session starts OPEN. Warnings logged but not blocking. | Balanced guidance |
 | **permissive** | Session always OPEN. Silent tracking only. | Maximum autonomy |
 
-## CLI Commands
-
-```bash
-hivemind init [options]     # Initialize project
-hivemind status             # Show current state
-hivemind compact            # Manual compaction info
-hivemind dashboard          # Launch dashboard (coming soon)
-hivemind help               # Show help
-
-Options:
-  --mode <strict|assisted|permissive>  Governance mode
-  --lang <en|vi>                       Language
-```
-
 ## Project Structure
+
+After initialization:
 
 ```
 .opencode/planning/
@@ -167,7 +142,7 @@ When sessions get complex, HiveMind provides gentle nudges:
 ┌─────────────▼───────────────────────────┐
 │      HiveMind Plugin (3 hooks)          │
 │  ├─ tool.execute.before (governance)    │
-│  ├─ experimental.chat.system.transform  │
+│  ├─ chat.message (sentiment detection)  │
 │  └─ experimental.session.compacting     │
 └─────────────┬───────────────────────────┘
               │
@@ -221,36 +196,6 @@ npm run dev
 
 - Node.js 18+
 - OpenCode with plugin support
-- `@opencode-ai/plugin` (peer dependency — provided by OpenCode)
-
-## Peer Dependencies
-
-This plugin requires `@opencode-ai/plugin` as a peer dependency. It is provided by your OpenCode installation and does not need to be installed separately.
-
-### TypeScript Compilation
-
-If you encounter type errors related to `@opencode-ai/plugin`:
-
-```bash
-# Check if the SDK is available
-npm ls @opencode-ai/plugin
-
-# If missing, the plugin will still work at runtime
-# Type checking is only needed during development
-```
-
-**Note**: The `@opencode-ai/plugin` package is a peer dependency that is provided by the OpenCode runtime environment. During development, you may see TypeScript warnings about missing types, but the plugin will function correctly when loaded by OpenCode.
-
-To suppress type warnings during development:
-
-```json
-// tsconfig.json
-{
-  "compilerOptions": {
-    "skipLibCheck": true
-  }
-}
-```
 
 ## Design Philosophy
 
@@ -263,49 +208,10 @@ To suppress type warnings during development:
 | **Drift-aware** | Automatic detection via sentiment + complexity |
 | **Self-assessment** | Built-in 1-10 scale rating for agent self-awareness |
 
-## What's New in v1.2.0
-
-### Bug Fixes (8 total)
-- **Init guard** — No longer fails when logger creates directory before init
-- **Self-rate threshold** — Score 7 correctly shows drift hint
-- **Sentiment false positives** — Word-boundary regex prevents "no problems found" triggering "no"
-- **Removed process.cwd() exports** — Tools no longer capture import-time directory
-- **Package metadata** — Correct repository URLs and peer dependencies
-
-## What's New in v1.1.0
-
-### Self-Rate Tool
-Agents can now self-assess their performance using the `self_rate` tool:
-- Score from 1-10 (10 = excellent)
-- Optional reason and context fields
-- Automatic feedback based on score (warnings for low scores)
-- Ratings stored in brain state for drift tracking
-
-### Sentiment Detection
-Automatic detection of negative signals in conversations:
-- Negative keywords: "stop", "wrong", "bad", "incorrect", "confused"
-- Agent failure phrases: "I apologize", "you are right", "I was wrong"
-- Cancellation patterns: "cancel", "abort", "start over"
-- Triggers context refresh recommendation after 2 signals in 5 turns
-
-### Complexity Nudges
-Gentle warnings when sessions get complex:
-- Threshold: 3+ files touched OR 5+ turns since last `declare_intent`
-- One nudge per session (resets on new intent declaration)
-- Logs to TUI: `[Nudge] Complexity rising (X files, Y turns). Consider declare_intent.`
-
-### Auto-Health Score
-Automatic tracking of tool success rates:
-- Calculated from successful vs total tool calls
-- Displayed in TUI status line
-- Helps agents self-assess without manual rating
-
 ## Documentation
 
 - [AGENTS.md](./AGENTS.md) — Complete guide for agents using the tools
-- [src/tools/](./src/tools/) — Tool implementations
-- [src/hooks/](./src/hooks/) — Hook implementations
-- [src/schemas/](./src/schemas/) — Type definitions
+- [CHANGELOG.md](./CHANGELOG.md) — Release history
 
 ## License
 

@@ -1,11 +1,11 @@
+#!/usr/bin/env node
 /**
- * HiveMind CLI — Interactive initialization and management.
+ * HiveMind CLI — One-command initialization and management.
  *
- * Commands:
- *   hivemind init      — Interactive project setup
- *   hivemind status    — Show current brain state
- *   hivemind compact   — Manual compaction trigger
- *   hivemind dashboard — Launch TUI dashboard (future)
+ * Usage:
+ *   npx hivemind-context-governance          — Initialize (default)
+ *   npx hivemind-context-governance init      — Same as above
+ *   npx hivemind-context-governance status    — Show current brain state
  *
  * CRITICAL: NO console.log in library code. CLI is the ONLY
  * place where console output is allowed (it IS the user interface).
@@ -15,7 +15,6 @@ import { argv } from "node:process"
 import { initProject } from "./cli/init.js"
 import { createStateManager, loadConfig } from "./lib/persistence.js"
 import { listArchives } from "./lib/planning-fs.js"
-import { createDashboardServer } from "./dashboard/server.js"
 
 const COMMANDS = ["init", "status", "compact", "dashboard", "help"] as const
 type Command = (typeof COMMANDS)[number]
@@ -25,10 +24,11 @@ function printHelp(): void {
 HiveMind Context Governance — CLI
 
 Usage:
-  hivemind <command> [options]
+  npx hivemind-context-governance [command] [options]
 
 Commands:
-  init          Initialize HiveMind in current project
+  (default)     Initialize HiveMind in current project
+  init          Same as default — initialize project
   status        Show current session and governance state
   compact       Archive current session and reset
   dashboard     Launch dashboard server
@@ -43,10 +43,9 @@ Options:
   --tdd                    Enforce test-driven development
 
 Examples:
-  hivemind init
-  hivemind init --mode strict --lang vi
-  hivemind init --expert advanced --style skeptical --code-review
-  hivemind status
+  npx hivemind-context-governance
+  npx hivemind-context-governance --mode strict --lang vi
+  npx hivemind-context-governance status
 `
   // CLI is the user interface — console output is allowed here
   // eslint-disable-next-line no-console
@@ -60,7 +59,7 @@ async function showStatus(directory: string): Promise<void> {
 
   if (!state) {
     // eslint-disable-next-line no-console
-    console.log("No active session. Run 'hivemind init' first.")
+    console.log("No active session. Run 'npx hivemind-context-governance' first.")
     return
   }
 
@@ -90,17 +89,24 @@ async function showStatus(directory: string): Promise<void> {
 
 async function main(): Promise<void> {
   const args = argv.slice(2)
-  const command = (args[0] ?? "help") as Command
-  const directory = process.cwd()
 
-  // Parse flags
+  // Parse flags from all args
   const flags: Record<string, string> = {}
-  for (let i = 1; i < args.length; i++) {
-    if (args[i].startsWith("--") && args[i + 1]) {
+  const positionalArgs: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith("--") && args[i + 1] && !args[i + 1].startsWith("--")) {
       flags[args[i].slice(2)] = args[i + 1]
       i++
+    } else if (args[i].startsWith("--")) {
+      flags[args[i].slice(2)] = ""
+    } else {
+      positionalArgs.push(args[i])
     }
   }
+
+  // Default to "init" when no command given (npx hivemind-context-governance)
+  const command = (positionalArgs[0] ?? "init") as Command
+  const directory = process.cwd()
 
   switch (command) {
     case "init":
@@ -110,8 +116,8 @@ async function main(): Promise<void> {
           (flags["mode"] as "permissive" | "assisted" | "strict") ?? undefined,
         expertLevel: (flags["expert"] as "beginner" | "intermediate" | "advanced" | "expert") ?? undefined,
         outputStyle: (flags["style"] as "explanatory" | "outline" | "skeptical" | "architecture" | "minimal") ?? undefined,
-        requireCodeReview: flags["code-review"] === "true" || flags["code-review"] === "",
-        enforceTdd: flags["tdd"] === "true" || flags["tdd"] === "",
+        requireCodeReview: "code-review" in flags,
+        enforceTdd: "tdd" in flags,
       })
       break
 
@@ -125,22 +131,14 @@ async function main(): Promise<void> {
       break
 
     case "dashboard": {
+      // Lazy-load dashboard to avoid pulling heavy deps on init/status
+      const { createDashboardServer } = await import("./dashboard/server.js")
       const port = flags["port"] ? parseInt(flags["port"], 10) : undefined
       const server = createDashboardServer(directory, { port })
       try {
         await server.start()
         // eslint-disable-next-line no-console
         console.log(`HiveMind Dashboard running at ${server.url}`)
-        // eslint-disable-next-line no-console
-        console.log(`\nAPI endpoints:`)
-        // eslint-disable-next-line no-console
-        console.log(`  ${server.url}/api/state`)
-        // eslint-disable-next-line no-console
-        console.log(`  ${server.url}/api/metrics`)
-        // eslint-disable-next-line no-console
-        console.log(`  ${server.url}/api/active`)
-        // eslint-disable-next-line no-console
-        console.log(`  ${server.url}/api/archives`)
         // eslint-disable-next-line no-console
         console.log(`\nPress Ctrl+C to stop`)
 
@@ -162,7 +160,12 @@ async function main(): Promise<void> {
     }
 
     case "help":
+      printHelp()
+      break
+
     default:
+      // eslint-disable-next-line no-console
+      console.log(`Unknown command: ${command}`)
       printHelp()
       break
   }
