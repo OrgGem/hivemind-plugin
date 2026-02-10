@@ -21,9 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Path references throughout codebase, tests, documentation
 
 ### Migration Guide
-Existing projects using `.opencode/planning/` need to:
-1. Run `hivemind init --migrate` (new flag)
-2. Or manually move `.opencode/planning/` → `.hivemind/`
+Existing projects using `.opencode/planning/` can manually move files:
+1. Create `.hivemind/` directory structure
+2. Move `.opencode/planning/` contents to `.hivemind/`
+3. Update `opencode.json` plugin registration if needed
 
 ## [1.3.0] - 2026-02-11
 
