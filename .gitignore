@@ -5,5 +5,4 @@ dist/
 .env
 .env.local
 coverage/
-.opencode/planning/brain.json
-.opencode/planning/archive/
+.opencode/
