@@ -107,7 +107,7 @@ async function test_selfRateWithReason() {
 
     assert(result.includes("Rating recorded: 7/10"), "records rating")
     assert(result.includes("Making good progress but hit a snag"), "includes reason")
-    assert(result.includes("💡"), "shows neutral feedback for medium score")
+    assert(result.includes("✅"), "shows positive feedback for score 7")
 
     // Check state
     const state = await stateManager.load()

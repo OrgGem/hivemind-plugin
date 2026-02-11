@@ -73,9 +73,9 @@ export function createSelfRateTool(directory: string): ToolDefinition {
 
       // Provide feedback based on score
       if (args.score <= 3) {
-        response += "\n⚠️ Low score detected. Consider using compact_session to reset context."
-      } else if (args.score <= 7) {
-        response += "\n💡 Score suggests some drift. Consider map_context to refocus."
+        response += "\n⚠️ Low score. Consider using compact_session to reset context."
+      } else if (args.score <= 5) {
+        response += "\n💡 Moderate score. Consider map_context to refocus."
       } else {
         response += "\n✅ Good progress!"
       }

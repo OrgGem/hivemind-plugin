@@ -61,6 +61,9 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
         state = createBrainState(sessionId, config, args.mode)
       }
 
+      // Capture old trajectory before overwriting
+      const oldTrajectory = state.hierarchy.trajectory
+
       // Unlock session
       state = unlockSession(state)
       state.session.mode = args.mode
@@ -107,7 +110,12 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
 
       await writeActiveMd(directory, activeMd)
 
-      return `Session: "${args.focus}". Mode: ${args.mode}. Status: OPEN.\n→ Use map_context to break this into tactics and actions.`
+      let response = `Session: "${args.focus}". Mode: ${args.mode}. Status: OPEN.`
+      if (oldTrajectory && oldTrajectory !== args.focus) {
+        response += `\n⚠ Previous trajectory replaced: "${oldTrajectory}"`
+      }
+      response += `\n→ Use map_context to break this into tactics and actions.`
+      return response
     },
   })
 }
