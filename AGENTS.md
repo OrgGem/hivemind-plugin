@@ -1,7 +1,7 @@
 # AGENTS.md — HiveMind Context Governance
 
-**Version:** 1.4.0
-**Status:** Core implementation complete. 4 tools, 4 hooks, CLI, 136 test assertions passing.
+**Version:** 1.5.0
+**Status:** Full architecture complete. 11 tools, 4 hooks, CLI, 331 test assertions passing.
 
 ---
 
@@ -14,7 +14,7 @@ Trajectory (Level 1) → Tactic (Level 2) → Action (Level 3)
 ```
 
 **Design principles:**
-- **4 tools only** — declare_intent, map_context, compact_session, self_rate
+- **4 core tools + 7 extensions** — declare_intent, map_context, compact_session, self_rate, scan_hierarchy, save_anchor, think_back, check_drift, save_mem, list_shelves, recall_mems
 - **Configurable governance** — strict / assisted / permissive modes
 - **User-driven** — no agent hierarchy, you stay in control
 - **Simple state** — 3-level hierarchy with automatic drift detection
@@ -401,8 +401,13 @@ This ensures that after LLM context compaction, the agent still knows what it wa
 | Init + Planning FS | 30 | ✅ Pass |
 | Tool Gate (governance) | 12 | ✅ Pass |
 | Self-Rate Tool | 28 | ✅ Pass |
-| Integration (E2E workflow) | 27 | ✅ Pass |
-| **Total** | **132** | ✅ **All Pass** |
+| Integration (E2E workflow) | 74 | ✅ Pass |
+| Auto-Hooks Pure Functions | 30 | ✅ Pass |
+| Session Export | 32 | ✅ Pass |
+| Session Structure | 18 | ✅ Pass |
+| Round 3 Tools (Cognitive Mesh) | 32 | ✅ Pass |
+| Round 4 Mems Brain | 40 | ✅ Pass |
+| **Total** | **331** | ✅ **All Pass** |
 
 ---
 
@@ -411,6 +416,7 @@ This ensures that after LLM context compaction, the agent still knows what it wa
 - **1.0.0** — Core implementation: 3 tools, 3 hooks, CLI, 103 tests
 - **1.2.0** — 8 bug fixes, self-rate tool (4th tool), sentiment regex, standalone packaging, 131 tests
 - **1.4.0** — Migrated from `.opencode/planning/` to `.hivemind/` directory structure, added 10 Commandments, 132 tests
+- **1.5.0** — Full architecture: Auto-hooks governance (R1), session management & auto-export (R2), cognitive mesh tools (R3), Mems Brain (R4). 11 tools, 4 hooks, 331 tests
 
 ---
 

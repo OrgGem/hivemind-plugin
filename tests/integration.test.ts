@@ -20,6 +20,10 @@ import { createSessionLifecycleHook } from "../src/hooks/session-lifecycle.js"
 import { createLogger } from "../src/lib/logging.js"
 import { loadConfig } from "../src/lib/persistence.js"
 import { loadAnchors, saveAnchors, addAnchor } from "../src/lib/anchors.js"
+import { loadMems } from "../src/lib/mems.js"
+import { createSaveMemTool } from "../src/tools/save-mem.js"
+import { createListShelvesTool } from "../src/tools/list-shelves.js"
+import { createRecallMemsTool } from "../src/tools/recall-mems.js"
 import { mkdtemp, rm, readdir } from "fs/promises"
 import { tmpdir } from "os"
 import { join } from "path"
@@ -938,6 +942,313 @@ async function test_fullCognitiveMeshWorkflow() {
   }
 }
 
+// ─── Round 4 Integration Tests ─────────────────────────────────────────
+
+async function test_saveMemPersistsAndSurvivesCompaction() {
+  process.stderr.write("\n--- round4: save_mem persists and survives compaction ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Mems persistence test" }
+    )
+
+    // Step 2: Save a memory
+    const saveMemTool = createSaveMemTool(dir)
+    const saveResult = await saveMemTool.execute({
+      shelf: "decisions",
+      content: "Use PostgreSQL for main database",
+      tags: "database,postgres,architecture"
+    })
+    assert(
+      saveResult.includes("Memory saved") && saveResult.includes("[decisions]"),
+      "save_mem stores memory in mems.json"
+    )
+
+    // Step 3: Verify it persisted on disk
+    const memsBeforeCompaction = await loadMems(dir)
+    assert(
+      memsBeforeCompaction.mems.length === 1 &&
+      memsBeforeCompaction.mems[0].shelf === "decisions" &&
+      memsBeforeCompaction.mems[0].content === "Use PostgreSQL for main database",
+      "memory persists on disk"
+    )
+
+    // Step 4: Compact session (resets brain state)
+    const compactTool = createCompactSessionTool(dir)
+    await compactTool.execute({ summary: "Mems test done" })
+
+    // Step 5: Verify memory survived compaction (plus auto-mem = 2 total)
+    const memsAfterCompaction = await loadMems(dir)
+    assert(
+      memsAfterCompaction.mems.some(m =>
+        m.shelf === "decisions" && m.content === "Use PostgreSQL for main database"
+      ),
+      "memory survives session compaction"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_recallMemsSearchesAcrossSessions() {
+  process.stderr.write("\n--- round4: recall_mems searches across sessions ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Recall search test" }
+    )
+
+    // Step 2: Save mems to different shelves
+    const saveMemTool = createSaveMemTool(dir)
+    await saveMemTool.execute({
+      shelf: "errors",
+      content: "CORS error on /api/auth endpoint",
+      tags: "cors,auth,api"
+    })
+    await saveMemTool.execute({
+      shelf: "solutions",
+      content: "Fixed CORS by adding allowed-origins header",
+      tags: "cors,fix"
+    })
+    await saveMemTool.execute({
+      shelf: "decisions",
+      content: "Use Redis for session storage",
+      tags: "redis,session"
+    })
+
+    // Step 3: Compact session (simulates "previous session")
+    const compactTool = createCompactSessionTool(dir)
+    await compactTool.execute({ summary: "Session 1 complete" })
+
+    // Step 4: Start new session
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "New session" }
+    )
+
+    // Step 5: Recall mems — cross-session search
+    const recallTool = createRecallMemsTool(dir)
+    const recallResult = await recallTool.execute({ query: "CORS" })
+    assert(
+      recallResult.includes("CORS error") && recallResult.includes("Fixed CORS"),
+      "recall_mems finds mems from previous sessions"
+    )
+
+    // Step 6: Recall with shelf filter
+    const filteredResult = await recallTool.execute({ query: "CORS", shelf: "errors" })
+    assert(
+      filteredResult.includes("CORS error") && !filteredResult.includes("Fixed CORS"),
+      "recall_mems filters by shelf correctly"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_listShelvesShowsOverview() {
+  process.stderr.write("\n--- round4: list_shelves shows accurate overview ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "List shelves test" }
+    )
+
+    // Step 2: Save mems to multiple shelves
+    const saveMemTool = createSaveMemTool(dir)
+    await saveMemTool.execute({ shelf: "decisions", content: "Decision 1" })
+    await saveMemTool.execute({ shelf: "decisions", content: "Decision 2" })
+    await saveMemTool.execute({ shelf: "errors", content: "Error 1" })
+
+    // Step 3: Call list_shelves
+    const listTool = createListShelvesTool(dir)
+    const listResult = await listTool.execute({})
+
+    // Step 4: Assert total count
+    assert(
+      listResult.includes("Total memories: 3"),
+      "list_shelves shows total count"
+    )
+
+    // Step 5: Assert shelf breakdown
+    assert(
+      listResult.includes("decisions: 2") && listResult.includes("errors: 1"),
+      "list_shelves shows shelf breakdown"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_autoMemOnCompaction() {
+  process.stderr.write("\n--- round4: auto-mem on compaction ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent with hierarchy
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    const mapContextTool = createMapContextTool(dir)
+
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Auto-mem test" }
+    )
+    await mapContextTool.execute(
+      { level: "tactic", content: "Build auth module", status: "active" }
+    )
+
+    // Step 2: Compact with summary
+    const compactTool = createCompactSessionTool(dir)
+    await compactTool.execute({ summary: "Auth module foundation complete" })
+
+    // Step 3: Load mems and check auto-created context mem
+    const memsState = await loadMems(dir)
+    const autoMem = memsState.mems.find(m =>
+      m.shelf === "context" && m.tags.includes("auto-compact")
+    )
+    assert(
+      autoMem !== undefined,
+      "compact_session creates context mem automatically"
+    )
+    assert(
+      autoMem !== undefined &&
+      autoMem.content.includes("Auth module foundation complete") &&
+      autoMem.tags.includes("session-summary"),
+      "auto-mem contains session summary"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_systemPromptIncludesMemsCount() {
+  process.stderr.write("\n--- round4: system prompt includes mems count ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Mems prompt test" }
+    )
+
+    // Step 2: Save some mems
+    const saveMemTool = createSaveMemTool(dir)
+    await saveMemTool.execute({ shelf: "patterns", content: "Always validate inputs" })
+    await saveMemTool.execute({ shelf: "decisions", content: "Use Zod for schema validation" })
+
+    // Step 3: Create session lifecycle hook and call it
+    const config = await loadConfig(dir)
+    const logger = await createLogger(dir, "test")
+    const hook = createSessionLifecycleHook(logger, dir, config)
+    const output = { system: [] as string[] }
+    await hook({ sessionID: "test-session" }, output)
+
+    // Step 4: Assert mems count in system prompt
+    const systemText = output.system.join("\n")
+    assert(
+      systemText.includes("Mems Brain") && systemText.includes("2 memories") && systemText.includes("recall_mems"),
+      "session lifecycle hook shows mems brain count"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_fullMemsBrainWorkflow() {
+  process.stderr.write("\n--- round4: full mems brain workflow ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Full workflow: declare → save → recall → compact (auto-mem) → new session → recall across sessions
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+
+    const declareIntentTool = createDeclareIntentTool(dir)
+    const mapContextTool = createMapContextTool(dir)
+    const saveMemTool = createSaveMemTool(dir)
+    const recallTool = createRecallMemsTool(dir)
+    const listTool = createListShelvesTool(dir)
+    const compactTool = createCompactSessionTool(dir)
+
+    // Step 1: Declare intent
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Full mems workflow" }
+    )
+
+    // Step 2: Save memories across shelves
+    await saveMemTool.execute({
+      shelf: "decisions",
+      content: "Chose TypeScript over JavaScript for type safety",
+      tags: "typescript,language"
+    })
+    await saveMemTool.execute({
+      shelf: "patterns",
+      content: "Pure functions for business logic, IO wrappers for side effects",
+      tags: "architecture,pure-functions"
+    })
+
+    // Step 3: Recall — should find both
+    const recallResult = await recallTool.execute({ query: "TypeScript" })
+    assert(
+      recallResult.includes("Chose TypeScript"),
+      "full workflow: save → recall finds memory"
+    )
+
+    // Step 4: Set hierarchy and compact (auto-mem created)
+    await mapContextTool.execute(
+      { level: "tactic", content: "Core architecture", status: "active" }
+    )
+    await compactTool.execute({ summary: "Architecture decisions finalized" })
+
+    // Step 5: Start new session
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Session 2 — building on decisions" }
+    )
+
+    // Step 6: Recall from new session — should find memories + auto-mem
+    const crossSessionRecall = await recallTool.execute({ query: "architecture" })
+    assert(
+      crossSessionRecall.includes("Pure functions") &&
+      crossSessionRecall.includes("Architecture decisions finalized"),
+      "full workflow: recall across sessions finds both manual + auto mems"
+    )
+
+    // Step 7: List shelves — should show all categories
+    const shelvesResult = await listTool.execute({})
+    assert(
+      shelvesResult.includes("decisions: 1") &&
+      shelvesResult.includes("patterns: 1") &&
+      shelvesResult.includes("context: 1"),
+      "full workflow: list_shelves shows all shelf categories"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
@@ -963,6 +1274,12 @@ async function main() {
   await test_checkDriftShowsHealthyWhenAligned()
   await test_checkDriftWarnsWhenDrifting()
   await test_fullCognitiveMeshWorkflow()
+  await test_saveMemPersistsAndSurvivesCompaction()
+  await test_recallMemsSearchesAcrossSessions()
+  await test_listShelvesShowsOverview()
+  await test_autoMemOnCompaction()
+  await test_systemPromptIncludesMemsCount()
+  await test_fullMemsBrainWorkflow()
 
   process.stderr.write(`\n=== Integration: ${passed} passed, ${failed_} failed ===\n`)
   process.exit(failed_ > 0 ? 1 : 0)
