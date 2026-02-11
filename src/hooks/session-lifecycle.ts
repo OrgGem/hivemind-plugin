@@ -26,6 +26,7 @@ import {
 } from "../lib/planning-fs.js"
 import { isSessionStale } from "../lib/staleness.js"
 import { detectChainBreaks } from "../lib/chain-analysis.js"
+import { loadAnchors, formatAnchorsForPrompt } from "../lib/anchors.js"
 import { shouldSuggestCommit } from "../lib/commit-advisor.js"
 import { getToolActivation } from "../lib/tool-activation.js"
 import { detectLongSession } from "../lib/long-session.js"
@@ -124,6 +125,13 @@ export function createSessionLifecycleHook(
         for (const brk of chainBreaks) {
           lines.push(`  - ${brk.message}`);
         }
+      }
+
+      // Inject immutable anchors
+      const anchorsState = await loadAnchors(directory);
+      const anchorsPrompt = formatAnchorsForPrompt(anchorsState);
+      if (anchorsPrompt) {
+        lines.push(anchorsPrompt);
       }
 
       // No hierarchy = prompt to declare intent

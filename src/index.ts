@@ -5,7 +5,7 @@
  *
  * ## Architecture
  *
- * - **5 Tools**: declare_intent, map_context, compact_session, self_rate, scan_hierarchy
+ * - **8 Tools**: declare_intent, map_context, compact_session, self_rate, scan_hierarchy, save_anchor, think_back, check_drift
  * - **2 Hooks**: session-lifecycle (system prompt), soft-governance (tracking)
  * - **Soft Governance**: Cannot block, only guide through prompts + tracking
  *
@@ -33,6 +33,9 @@ import {
   createCompactSessionTool,
   createSelfRateTool,
   createScanHierarchyTool,
+  createSaveAnchorTool,
+  createThinkBackTool,
+  createCheckDriftTool,
 } from "./tools/index.js"
 import {
   createSessionLifecycleHook,
@@ -49,7 +52,7 @@ import { loadConfig } from "./lib/persistence.js"
  * Initializes governance layer with:
  *   - Session lifecycle hook (system prompt injection)
  *   - Soft governance hook (tracking + violation detection)
- *   - 5 context management tools
+ *   - 8 context management tools
  */
 export const HiveMindPlugin: Plugin = async ({
   directory,
@@ -77,6 +80,9 @@ export const HiveMindPlugin: Plugin = async ({
       createCompactSessionTool(effectiveDir),
       createSelfRateTool(effectiveDir),
       createScanHierarchyTool(effectiveDir),
+      createSaveAnchorTool(effectiveDir),
+      createThinkBackTool(effectiveDir),
+      createCheckDriftTool(effectiveDir),
     ],
 
     /**
