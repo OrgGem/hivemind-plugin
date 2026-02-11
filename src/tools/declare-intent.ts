@@ -78,6 +78,10 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
         governance_status: "OPEN",
         start_time: state.session.start_time,
         last_updated: Date.now(),
+        date: state.session.date,
+        meta_key: state.session.meta_key,
+        role: state.session.role,
+        by_ai: state.session.by_ai,
       }
       activeMd.body = [
         "# Active Session",
@@ -86,6 +90,9 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
         `**Mode**: ${args.mode}`,
         `**Focus**: ${args.focus}`,
         args.reason ? `**Reason**: ${args.reason}` : "",
+        "",
+        "## Plan",
+        `- [ ] ${args.focus}`,
         "",
         "## Completed",
         "<!-- Items marked [x] get archived -->",

@@ -97,6 +97,19 @@ export function createMapContextTool(directory: string): ToolDefinition {
 
         activeMd.frontmatter.last_updated = Date.now()
         await writeActiveMd(directory, activeMd)
+
+        // Add plan line tracking
+        const freshMd = await readActiveMd(directory)
+        const planMarker = "## Plan"
+        if (freshMd.body.includes(planMarker)) {
+          const statusMark = status === "complete" ? "x" : " "
+          const planLine = `- [${statusMark}] [${args.level}] ${args.content}`
+          freshMd.body = freshMd.body.replace(
+            planMarker,
+            `${planMarker}\n${planLine}`
+          )
+          await writeActiveMd(directory, freshMd)
+        }
       }
 
       return `[${args.level}] "${args.content}" → ${status}`

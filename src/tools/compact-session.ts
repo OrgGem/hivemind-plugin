@@ -24,7 +24,11 @@ import {
   updateIndexMd,
   resetActiveMd,
   listArchives,
+  getExportDir,
 } from "../lib/planning-fs.js"
+import { generateExportData, generateJsonExport, generateMarkdownExport } from "../lib/session-export.js"
+import { mkdir, writeFile } from "fs/promises"
+import { join } from "path"
 
 export function createCompactSessionTool(directory: string): ToolDefinition {
   return tool({
@@ -79,6 +83,28 @@ export function createCompactSessionTool(directory: string): ToolDefinition {
         args.summary ||
         `Session ${state.session.id}: ${state.metrics.turn_count} turns, ${state.metrics.files_touched.length} files`
       await updateIndexMd(directory, summaryLine)
+
+      // Generate auto-export
+      try {
+        const exportData = generateExportData(state, summaryLine)
+        const exportDir = getExportDir(directory)
+        await mkdir(exportDir, { recursive: true })
+
+        const timestamp = new Date().toISOString().split("T")[0]
+        const baseName = `session_${timestamp}_${state.session.id}`
+
+        await writeFile(
+          join(exportDir, `${baseName}.json`),
+          generateJsonExport(exportData)
+        )
+
+        await writeFile(
+          join(exportDir, `${baseName}.md`),
+          generateMarkdownExport(exportData, activeMd.body)
+        )
+      } catch {
+        // Export failure is non-fatal
+      }
 
       // Reset active.md to template
       await resetActiveMd(directory)

@@ -37,6 +37,10 @@ export interface ActiveMdContent {
     governance_status?: string;
     start_time?: number;
     last_updated?: number;
+    date?: string;
+    meta_key?: string;
+    role?: string;
+    by_ai?: boolean;
   };
   body: string;
 }
@@ -165,6 +169,10 @@ mode: ""
 governance_status: "LOCKED"
 start_time: 0
 last_updated: 0
+date: ""
+meta_key: ""
+role: ""
+by_ai: true
 ---
 
 # Active Session
@@ -172,12 +180,19 @@ last_updated: 0
 ## Current Focus
 <!-- Updated via map_context -->
 
+## Plan
+<!-- Living plan — tracks trajectory/tactic/action hierarchy -->
+
 ## Completed
 <!-- Items marked [x] get archived -->
 
 ## Notes
 <!-- Scratchpad - anything goes -->
 `;
+}
+
+export function getExportDir(projectRoot: string): string {
+  return join(getPlanningPaths(projectRoot).archiveDir, "exports");
 }
 
 export async function resetActiveMd(projectRoot: string): Promise<void> {
