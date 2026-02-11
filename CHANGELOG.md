@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-02-11
+
+### Breaking Changes
+- System prompt injection restructured — uses `<hivemind>` tag instead of `<hivemind-governance>` and `<agent-configuration>`
+- Commit suggestion removed from system prompt (was user concern, not agent concern)
+- Mems count removed from system prompt (not actionable)
+
+### Added
+- **Priority-sectioned system prompt** — drops lowest priority sections when budget exceeded instead of malformed truncation
+- **Anchor age indicators** — anchors in system prompt show `(Xh ago)` / `(Xd ago)`
+- **Input validation** — all string args validated for non-empty content
+- **Helper footers** — every tool output suggests the logical next action
+- **Upsert for anchors** — updating an existing key shows the delta (was/now)
+- **Memory deduplication** — save_mem rejects duplicate content on same shelf
+- **Session awareness** — save_anchor/save_mem warn when no active session
+- **Overwrite warning** — declare_intent warns when replacing an existing trajectory
+- **Output budget** — think_back capped at 2000 chars, anchors at 5, plan at 10 lines
+
+### Fixed
+- **System prompt malformed XML** — truncation was closing `</agent-configuration>` inside `<hivemind-governance>` producing invalid XML
+- **Hook inconsistency** — write tool lists now identical between before/after hooks (exact Set.has matching)
+- **Fuzzy tool matching** — replaced dangerous `startsWith`/`includes` with exact `Set.has()`
+- **Double save** — soft-governance hook consolidated to single disk write
+- **Array mutation** — list-shelves sort no longer mutates shared state
+- **scan_hierarchy JSON** — now returns structured text like all other tools
+- **self_rate threshold** — score 6-7 now shows positive feedback instead of drift warning
+
+### Changed
+- System prompt budget increased from 1000 to 2500 chars
+- Package.json: removed src/ from files, added exports field, tightened peerDependencies
+- Error messages standardized with `ERROR:` prefix and guidance
+- scan_hierarchy description differentiated from think_back
+- save_anchor description removes "API keys" (security risk)
+- README rewritten to document all 11 tools and 4 hooks
+
 ## [1.6.0] - 2026-02-11
 
 ### Fixed
