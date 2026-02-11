@@ -373,7 +373,7 @@ hivemind-plugin/
 │       ├── STRESS-TEST-1.MD                    # Stress test specification
 │       └── master-plan-2026-02-12.md           # THIS FILE — living plan, updated each iteration
 ├── src/
-│   ├── index.ts                        # Plugin entry — registers all 13 tools + 4 hooks
+│   ├── index.ts                        # Plugin entry — registers all 14 tools + 4 hooks
 │   ├── cli/
 │   │   └── init.ts                     # CLI: hivemind init (creates .hivemind/)
 │   ├── hooks/
@@ -386,7 +386,18 @@ hivemind-plugin/
 │   │   ├── detection.ts               # Engine: tool classification, counters, keywords, signal compilation
 │   │   ├── planning-fs.ts             # Engine: template system, per-session files, manifest, FileGuard tracking
 │   │   ├── chain-analysis.ts          # Engine: staleness, chain breaks, tree-aware gap detection
-│   │   └── auto-hooks-pure.ts         # Engine: pure functions for hook logic (suggestions, staleness, commits)
+│   │   ├── persistence.ts            # Engine: brain state I/O, config I/O, brain backup
+│   │   ├── anchors.ts                # Engine: anchor CRUD and prompt formatting
+│   │   ├── mems.ts                   # Engine: mems CRUD, search, shelf summary
+│   │   ├── session-export.ts         # Engine: JSON + markdown export on compaction
+│   │   ├── staleness.ts              # Engine: session stale detection (days idle)
+│   │   ├── long-session.ts           # Engine: turn threshold for compact suggestion
+│   │   ├── commit-advisor.ts         # Engine: files touched → commit suggestion
+│   │   ├── complexity.ts             # Engine: session complexity assessment
+│   │   ├── tool-activation.ts        # Engine: suggest which tool to use based on state
+│   │   ├── sentiment.ts              # Engine: user sentiment regex for rage/frustration detection
+│   │   ├── logging.ts                # Engine: logger interface
+│   │   └── index.ts                  # Barrel: lib exports
 │   ├── schemas/
 │   │   ├── brain-state.ts             # Schema: BrainState, MetricsState, detection counters, session metadata
 │   │   ├── config.ts                  # Schema: GovernanceConfig, detection thresholds
@@ -407,7 +418,7 @@ hivemind-plugin/
 │       ├── hierarchy.ts              # Tool: hierarchy_prune + hierarchy_migrate
 │       └── export-cycle.ts           # Tool: capture subagent results into tree + mems
 ├── tests/
-│   ├── auto-hooks-pure.test.ts        # 36 assertions
+│   ├── auto-hooks-pure.test.ts        # 39 assertions — tests staleness, chain-analysis, commit-advisor, tool-activation
 │   ├── complexity.test.ts             # 28 assertions
 │   ├── detection.test.ts              # 42 assertions
 │   ├── hierarchy-tree.test.ts         # 55 assertions
@@ -441,7 +452,7 @@ hivemind-plugin/
 │       └── SKILL.md                      # Decision flowchart, auto-capture, subagent prompt engineering
 ```
 
-**43 source files. 5 skill files. 17 test files. 607 assertions. 0 orphans.**
+**43 source files. 5 skill files. 17 test files. 621 assertions. 0 orphans.**
 
 ---
 
@@ -497,7 +508,7 @@ hivemind-plugin/
 | Pre-1 | 2026-02-11 | Hierarchy redesign — 17 implementation steps | All complete. Tree engine, detection, hooks wired. | 489 |
 | Skill-0 | 2026-02-11 | Skill system — 5 skills (bootstrap + 4 discipline) | Written. 3918 total words. Needs code wiring. | — |
 | 1 | 2026-02-11 | Sophisticated tools-in-tools + activation wiring + `export_cycle` tool + auto-capture hook | **COMPLETE.** 12/12 sub-tasks done. export_cycle tool, auto-capture hook, pending_failure_ack, map_context blocked clears ack. | 607 |
-| 2 | PENDING | Entry testing — full chain + edge cases | — | — |
+| 2 | 2026-02-12 | Entry testing + foundation hardening — edge cases, docs accuracy, file tree reality | **IN PROGRESS.** Master plan file tree fixed (16 lib files listed), +14 entry test assertions (JSONC, re-init guard, config persistence). | 621 |
 | 3+ | PENDING | To be defined based on iteration 1 outcomes | — | — |
 
 ---

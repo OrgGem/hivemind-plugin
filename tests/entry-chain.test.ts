@@ -16,8 +16,8 @@ import { createScanHierarchyTool } from "../src/tools/scan-hierarchy.js"
 import { loadTree, treeExists } from "../src/lib/hierarchy-tree.js"
 import { readManifest } from "../src/lib/planning-fs.js"
 import { loadMems } from "../src/lib/mems.js"
-import { mkdtemp, rm, readdir, writeFile } from "fs/promises"
-import { existsSync } from "fs"
+import { mkdtemp, rm, readdir, writeFile, readFile } from "fs/promises"
+import { existsSync, writeFileSync, readFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 
@@ -349,6 +349,111 @@ async function test_corruptBrainJsonRecovery() {
   }
 }
 
+// ─── Test 11: opencode.jsonc handling ─────────────────────────────────
+
+async function test_jsoncConfigPreservation() {
+  process.stderr.write("\n--- entry-chain: opencode.jsonc handling ---\n")
+  const dir = await makeTmpDir()
+
+  try {
+    // Create opencode.jsonc with comments and other settings
+    const jsoncContent = `{
+  // This is a comment
+  "provider": {
+    "anthropic": { "model": "claude-sonnet-4-20250514" }
+  },
+  "plugin": ["some-other-plugin"]
+}
+`
+    writeFileSync(join(dir, "opencode.jsonc"), jsoncContent, "utf-8")
+
+    // Init should find and parse opencode.jsonc
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+
+    // Should NOT have created a separate opencode.json (jsonc should be used)
+    const jsonExists = existsSync(join(dir, "opencode.json"))
+    const jsoncExists = existsSync(join(dir, "opencode.jsonc"))
+
+    // Read the config file that was actually written to
+    const configPath = jsoncExists ? join(dir, "opencode.jsonc") : join(dir, "opencode.json")
+    const raw = readFileSync(configPath, "utf-8")
+    const parsed = JSON.parse(raw)
+    const plugins = parsed.plugin as string[]
+
+    assert(jsoncExists, "opencode.jsonc still exists after init")
+    assert(
+      plugins.includes("hivemind-context-governance"),
+      "hivemind-context-governance registered in config"
+    )
+    assert(
+      plugins.includes("some-other-plugin"),
+      "existing plugin 'some-other-plugin' preserved in config"
+    )
+    assert(parsed.provider !== undefined, "provider settings preserved in config")
+  } finally {
+    await cleanTmpDir(dir)
+  }
+}
+
+// ─── Test 12: re-init guard — existing .hivemind/ not overwritten ─────
+
+async function test_reInitGuard() {
+  process.stderr.write("\n--- entry-chain: re-init guard ---\n")
+  const dir = await makeTmpDir()
+
+  try {
+    // First init
+    await initProject(dir, { governanceMode: "strict", language: "vi", silent: true })
+
+    // Verify config values
+    const config1 = JSON.parse(readFileSync(join(dir, ".hivemind", "config.json"), "utf-8"))
+    assert(config1.governance_mode === "strict", "first init: governance_mode is strict")
+    assert(config1.language === "vi", "first init: language is vi")
+
+    // Second init should be a no-op (brain.json exists guard)
+    await initProject(dir, { governanceMode: "permissive", language: "en", silent: true })
+
+    // Config should NOT have changed
+    const config2 = JSON.parse(readFileSync(join(dir, ".hivemind", "config.json"), "utf-8"))
+    assert(config2.governance_mode === "strict", "re-init: governance_mode still strict (not overwritten)")
+    assert(config2.language === "vi", "re-init: language still vi (not overwritten)")
+  } finally {
+    await cleanTmpDir(dir)
+  }
+}
+
+// ─── Test 13: config persistence — values flow to tools ──────────────
+
+async function test_configPersistence() {
+  process.stderr.write("\n--- entry-chain: config persistence ---\n")
+  const dir = await makeTmpDir()
+
+  try {
+    // Init with strict mode
+    await initProject(dir, { governanceMode: "strict", language: "en", silent: true })
+
+    // Verify config on disk matches what loadConfig returns
+    const config = await loadConfig(dir)
+    assert(config.governance_mode === "strict", "loadConfig returns governance_mode=strict from disk")
+    assert(config.max_turns_before_warning === 5, "loadConfig returns default max_turns_before_warning=5")
+    assert(config.agent_behavior.constraints.be_skeptical === false, "deep-merged constraints: be_skeptical defaults to false")
+    assert(config.agent_behavior.constraints.enforce_tdd === false, "deep-merged constraints: enforce_tdd defaults to false")
+
+    // Modify config on disk — partial override
+    const configPath = join(dir, ".hivemind", "config.json")
+    const onDisk = JSON.parse(readFileSync(configPath, "utf-8"))
+    onDisk.max_turns_before_warning = 10
+    writeFileSync(configPath, JSON.stringify(onDisk, null, 2))
+
+    // loadConfig should pick up the change
+    const config2 = await loadConfig(dir)
+    assert(config2.max_turns_before_warning === 10, "loadConfig reads updated max_turns_before_warning=10 from disk")
+    assert(config2.governance_mode === "strict", "other config values preserved after partial update")
+  } finally {
+    await cleanTmpDir(dir)
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
@@ -358,6 +463,9 @@ async function main() {
   await test_fullChain()
   await test_oldInstallNoHierarchyJson()
   await test_corruptBrainJsonRecovery()
+  await test_jsoncConfigPreservation()
+  await test_reInitGuard()
+  await test_configPersistence()
 
   process.stderr.write(`\n=== Entry Chain: ${passed} passed, ${failed_} failed ===\n`)
   process.exit(failed_ > 0 ? 1 : 0)
