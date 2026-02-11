@@ -237,10 +237,7 @@ HiveMind provides **soft governance** through guidance and tracking.
 │   └── archive/         # Completed sessions
 │       └── session_2026-02-10_abc123.md
 ├── brain.json          # Machine state (session, metrics, hierarchy)
-├── config.json         # Governance settings (mode, language)
-├── plans/              # Plan storage
-│   └── archive/
-└── logs/               # Plugin logs
+└── config.json         # Governance settings (mode, language)
 ```
 
 **Files you should read:**

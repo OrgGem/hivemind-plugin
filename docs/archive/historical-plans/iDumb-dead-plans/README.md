@@ -30,4 +30,4 @@ They are preserved here for historical reference only.
 
 **DO NOT USE THESE PLANS.** They reference non-existent code and paths.
 
-Current active planning: `.hivemind/plans/` and `docs/plans/`
+Current active planning: `docs/plans/`

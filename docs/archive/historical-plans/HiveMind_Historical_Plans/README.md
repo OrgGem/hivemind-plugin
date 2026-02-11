@@ -22,7 +22,6 @@ Archived HiveMind plans that are no longer active but may be useful for referenc
 
 ## Current Active Planning
 
-- `.hivemind/plans/` - Active development plans
 - `docs/plans/` - Published plans
 - `CHANGELOG.md` - Release notes
 - `AGENTS.md` - Agent-facing documentation
