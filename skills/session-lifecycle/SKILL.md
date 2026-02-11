@@ -1,17 +1,11 @@
 ---
 name: session-lifecycle
-description: HiveMind session lifecycle management — declare_intent, map_context, compact_session. Use when starting, updating, or closing work sessions.
+description: Use when starting, updating, or closing work sessions — covers declare_intent, map_context, compact_session with reward/consequence framing and auto-export behavior
 ---
 
-# Session Lifecycle Skill
+# Session Lifecycle
 
-Manage your work session context with HiveMind's 3-level hierarchy.
-
-## When to Use
-
-- **Starting work** → `declare_intent`
-- **Changing focus** → `map_context`
-- **Finishing work** → `compact_session`
+Manage your work session with HiveMind's 3-level hierarchy. Each tool is a cognitive prosthetic — you become smarter by using it.
 
 ## The 3-Level Hierarchy
 
@@ -19,13 +13,11 @@ Manage your work session context with HiveMind's 3-level hierarchy.
 Trajectory (Level 1) → Tactic (Level 2) → Action (Level 3)
 ```
 
-- **Trajectory**: Project-level goals, milestones, direction
-- **Tactic**: Session-level approach, implementation strategy
-- **Action**: Specific task being worked on right now
+- **Trajectory**: Project-level goal, survives sessions
+- **Tactic**: Session-level approach, survives compaction
+- **Action**: What you're doing right now, resets drift
 
-## Quick Reference
-
-### declare_intent — Start Your Session
+## Starting a Session — `declare_intent`
 
 ```typescript
 declare_intent({
@@ -35,31 +27,27 @@ declare_intent({
 })
 ```
 
-**Examples:**
+**What you gain:**
+- Hierarchy tree created with timestamp ID (grep-able forever)
+- Session file instantiated from template (structured, not chaotic)
+- Drift detection activated (you'll know when you wander)
+- Brain state initialized (all tools now have context)
+- Manifest updated (session traceable across boundaries)
 
-```typescript
-// Feature implementation
-declare_intent({
-  mode: "plan_driven",
-  focus: "Implement user authentication system"
-})
+**What skipping costs:**
+- No drift detection → silent wandering without awareness
+- No tree → `scan_hierarchy`, `think_back`, `check_drift` return nothing
+- No session file → compaction loses all context
+- System prompt warns every turn (strict/assisted modes)
 
-// Quick bug fix
-declare_intent({
-  mode: "quick_fix",
-  focus: "Fix login redirect bug",
-  reason: "Production issue, needs immediate fix"
-})
+**Mode selection:**
+| Mode | When | Governance |
+|------|------|-----------|
+| `plan_driven` | Feature work, multi-step tasks | Full tracking, drift warnings at 5 turns |
+| `quick_fix` | Bug fix, single change | Lighter tracking, drift warnings at 8 turns |
+| `exploration` | Research, investigation | Minimal tracking, drift warnings at 12 turns |
 
-// Exploration
-declare_intent({
-  mode: "exploration",
-  focus: "Research caching strategies",
-  reason: "Evaluating options before implementation"
-})
-```
-
-### map_context — Update Your Focus
+## Updating Focus — `map_context`
 
 ```typescript
 map_context({
@@ -69,40 +57,27 @@ map_context({
 })
 ```
 
-**Examples:**
+**What you gain:**
+- Turn count RESET → drift score rebounds
+- Tree node created with timestamp → decision traceable
+- Active session file updated → any agent can see current focus
+- Chain integrity maintained → parent-child relationships preserved
 
-```typescript
-// Update trajectory
-trajectory
-map_context({
-  level: "trajectory",
-  content: "Build OAuth2 + JWT authentication",
-  status: "active"
-})
+**What skipping costs:**
+- Turn count climbs → drift warnings compound
+- No record of focus change → looks like wandering
+- Compaction loses the pivot → next session doesn't know you changed direction
 
-// Update tactic
-map_context({
-  level: "tactic",
-  content: "Set up Passport.js with JWT strategy",
-  status: "active"
-})
+**When to call:**
+- Switching from planning to implementation → `level: "tactic"`
+- Starting a specific task → `level: "action"`
+- Completed something → `status: "complete"` (enables auto-prune)
+- Hit a wall → `status: "blocked"` (clears failure flags)
+- Changed direction → new `content` at appropriate level
 
-// Update action
-map_context({
-  level: "action",
-  content: "Install passport-jwt package",
-  status: "active"
-})
+**How often:** Every 3-5 meaningful actions. Too frequent = noise. Too rare = drift.
 
-// Mark complete
-map_context({
-  level: "action",
-  content: "Install passport-jwt package",
-  status: "complete"
-})
-```
-
-### compact_session — Archive and Reset
+## Closing a Session — `compact_session`
 
 ```typescript
 compact_session({
@@ -110,86 +85,96 @@ compact_session({
 })
 ```
 
-**Examples:**
+**What the internal scripts do automatically:**
+1. Identify turning points from tree (timestamp gaps, status changes)
+2. Generate context report (trajectory + active tactic + key decisions + files)
+3. Generate next-compaction report (what to preserve for future compaction)
+4. Auto-prune completed branches (if threshold exceeded)
+5. Auto-export session as JSON + markdown
+6. Auto-save summary to mems brain (survives across sessions)
+7. Archive session file to `archive/` directory
+8. Update manifest, increment `compaction_count`
+9. Reset brain state for next session
 
-```typescript
-// Archive with summary
-compact_session({
-  summary: "Completed auth middleware with JWT validation"
-})
+**What you gain:**
+- Clean session boundary with full archive
+- Intelligence preserved in mems (decisions, findings)
+- Next session gets curated context via `next_compaction_report`
+- Tree pruned of completed work
+- Compaction count tracked for pattern detection
 
-// Archive without summary (auto-generated)
-compact_session({})
+**What skipping costs:**
+- Session file grows unbounded → compaction quality drops
+- No archive → session history lost
+- No mems → next session starts from zero
+- No report → next compaction is generic, not curated
+
+## Typical Flow
+
 ```
+1. declare_intent({ mode: "plan_driven", focus: "Build auth system" })
 
-## Typical Workflow
+2. map_context({ level: "trajectory", content: "OAuth2 + JWT architecture" })
 
-```
-1. Start session
-   declare_intent({ mode: "plan_driven", focus: "Build auth system" })
+3. map_context({ level: "tactic", content: "Set up JWT middleware" })
 
-2. Set trajectory
-   map_context({ level: "trajectory", content: "OAuth2 + JWT architecture" })
-
-3. Work on tactic
-   map_context({ level: "tactic", content: "Set up Passport.js" })
-
-4. Specific actions
-   map_context({ level: "action", content: "Install passport-jwt" })
+4. map_context({ level: "action", content: "Install jose library" })
    [do work...]
-   map_context({ level: "action", content: "Install passport-jwt", status: "complete" })
-   
-   map_context({ level: "action", content: "Configure JWT strategy" })
+   map_context({ level: "action", content: "Install jose", status: "complete" })
+
+5. map_context({ level: "action", content: "Write token validator" })
    [do work...]
-   map_context({ level: "action", content: "Configure JWT strategy", status: "complete" })
+   map_context({ level: "action", content: "Token validator", status: "complete" })
 
-5. Finish session
-   compact_session({ summary: "Auth system foundation complete" })
+6. compact_session({ summary: "JWT middleware foundation with jose" })
 ```
-
-## Drift Management
-
-HiveMind tracks session health with a **drift score** (0-100):
-
-- **100**: Fresh context, just updated
-- **< 50**: Drift warning triggered
-- **Reset**: Call `map_context` to reset drift
-
-**When drift warnings appear:**
-- You've made many tool calls without updating context
-- Call `map_context` to signal re-engagement
-- Updates reset turn count and boost drift score
 
 ## Governance Modes
 
-Your session behavior depends on the governance mode:
+| Mode | Session Start | Warnings | Tracking |
+|------|--------------|----------|----------|
+| **strict** | LOCKED until `declare_intent` | Strong, every turn | Full |
+| **assisted** | OPEN, warnings if no intent | Moderate | Full |
+| **permissive** | OPEN, silent | None | Silent |
 
-| Mode | Behavior |
-|------|----------|
-| **strict** | Must call `declare_intent` before writes. Warns without active session (cannot block — OpenCode v1.1+ limitation). |
-| **assisted** | Session starts OPEN. Warnings logged but not blocking. |
-| **permissive** | Session always OPEN. Silent tracking only. |
+**Important:** Even in permissive mode, tracking still happens. Your future self benefits from the data even if you don't see warnings now.
 
-## Best Practices
+## Drift Management
 
-1. **Always start with `declare_intent`** — Sets trajectory and unlocks session
-2. **Use `map_context` when switching focus** — Keeps drift score healthy
-3. **Call `compact_session` when done** — Archives work, resets for next session
-4. **Check `active.md` if confused** — Current focus is always there
-5. **Update hierarchy when it feels useful** — Don't overthink it
+HiveMind tracks drift score (0-100):
+- **>50**: Healthy — you've updated context recently
+- **<50**: Warning — too many turns without checkpoint
+- **Reset**: Call `map_context` with any level
 
-## Troubleshooting
+## Verification Commands
 
-| Problem | Solution |
-|---------|----------|
-| "SESSION LOCKED" warning | Call `declare_intent` first |
-| High drift warning | Call `map_context` to reset |
-| No session data | Run `hivemind init` |
-| Lost context | Check `.hivemind/sessions/active.md` |
+```bash
+# See current session state
+node bin/hivemind-tools.cjs session active
+
+# See full hierarchy tree
+node bin/hivemind-tools.cjs state hierarchy
+
+# Check session history
+node bin/hivemind-tools.cjs session history
+
+# Trace artifacts from a session
+node bin/hivemind-tools.cjs session trace <stamp>
+```
 
 ## Files to Know
 
-- `.hivemind/sessions/active.md` — Current session (read this)
-- `.hivemind/sessions/index.md` — Project trajectory (read this)
-- `.hivemind/brain.json` — Machine state (don't edit)
-- `.hivemind/sessions/archive/` — Session history
+- `.hivemind/sessions/{stamp}.md` — Current session (per-session, from template)
+- `.hivemind/sessions/manifest.json` — Session registry (JSON, queryable)
+- `.hivemind/hierarchy.json` — Tree hierarchy (source of truth)
+- `.hivemind/brain.json` — Machine state (don't edit manually)
+- `.hivemind/sessions/archive/` — Completed sessions
+
+## Red Flags
+
+| Thought | Reality |
+|---------|---------|
+| "I'll declare intent later" | Every tool call without intent is untracked. Do it first. |
+| "I don't need to update context" | 5 turns without update = drift warning. 10 turns = stale context. |
+| "I'll compact at the end" | Compaction may fire automatically. Compact when work is done. |
+| "This session is too short to archive" | Short sessions still have decisions worth preserving. |

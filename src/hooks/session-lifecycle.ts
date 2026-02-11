@@ -35,6 +35,7 @@ import { isSessionStale } from "../lib/staleness.js"
 import { detectChainBreaks } from "../lib/chain-analysis.js"
 import { loadAnchors } from "../lib/anchors.js"
 import { detectLongSession } from "../lib/long-session.js"
+import { getToolActivation } from "../lib/tool-activation.js"
 import {
   compileSignals,
   formatSignals,
@@ -242,6 +243,16 @@ export function createSessionLifecycleHook(
       const longSession = detectLongSession(state, config.auto_compact_on_turns)
       if (longSession.isLong) {
         warningLines.push(`⏰ ${longSession.suggestion}`)
+      }
+
+      // TOOL ACTIVATION SUGGESTION
+      const toolHint = getToolActivation(state, {
+        completedBranches: completedBranchCount,
+        hasMissingTree: !treeExists(directory),
+        postCompaction: (state.last_compaction_time ?? 0) > 0 && state.metrics.turn_count <= 1,
+      })
+      if (toolHint) {
+        warningLines.push(`💡 Suggested: ${toolHint.tool} — ${toolHint.reason}`)
       }
 
       // ANCHORS with age (shown if present)

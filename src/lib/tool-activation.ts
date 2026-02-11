@@ -17,11 +17,22 @@ export interface ToolHint {
   priority: "high" | "medium" | "low";
 }
 
+/** Optional context for extended tool suggestions (priorities 5-7). */
+export interface ToolActivationContext {
+  completedBranches?: number;
+  hasMissingTree?: boolean;
+  postCompaction?: boolean;
+}
+
 /**
  * Returns the single most relevant tool hint based on current brain state.
- * Priority order: LOCKED > drift > long session > empty hierarchy.
+ * Priority order: LOCKED > drift > long session > empty hierarchy >
+ *   hierarchy_prune > hierarchy_migrate > think_back.
  */
-export function getToolActivation(state: BrainState): ToolHint | null {
+export function getToolActivation(
+  state: BrainState,
+  context?: ToolActivationContext
+): ToolHint | null {
   // Priority 1: Session locked → must declare intent
   if (state.session.governance_status === "LOCKED") {
     return {
@@ -54,6 +65,33 @@ export function getToolActivation(state: BrainState): ToolHint | null {
     return {
       tool: "map_context",
       reason: "No hierarchy set. Define your trajectory for better tracking.",
+      priority: "medium",
+    };
+  }
+
+  // Priority 5: High completed branches → suggest hierarchy_prune
+  if (context?.completedBranches && context.completedBranches >= 5) {
+    return {
+      tool: "hierarchy_prune",
+      reason: `${context.completedBranches} completed branches. Prune to keep hierarchy clean.`,
+      priority: "medium",
+    };
+  }
+
+  // Priority 6: Missing hierarchy tree + flat hierarchy exists → suggest hierarchy_migrate
+  if (context?.hasMissingTree && (state.hierarchy.trajectory || state.hierarchy.tactic)) {
+    return {
+      tool: "hierarchy_migrate",
+      reason: "No hierarchy tree found but flat hierarchy exists. Migrate for better tracking.",
+      priority: "medium",
+    };
+  }
+
+  // Priority 7: Post-compaction (fresh session after compaction) → suggest think_back
+  if (context?.postCompaction) {
+    return {
+      tool: "think_back",
+      reason: "Session was recently compacted. Think back to refresh your context.",
       priority: "medium",
     };
   }

@@ -1,7 +1,7 @@
 # AGENTS.md — HiveMind Context Governance
 
 **Version:** 2.1.0
-**Status:** Hierarchy redesign complete. 13 tools, 4 hooks, CLI, 489 test assertions passing.
+**Status:** Hierarchy redesign complete. 14 tools, 4 hooks, CLI, 5 skills, 489 test assertions passing.
 
 ---
 
@@ -14,7 +14,7 @@ Trajectory (Level 1) → Tactic (Level 2) → Action (Level 3)
 ```
 
 **Design principles:**
-- **4 core tools + 9 extensions** — declare_intent, map_context, compact_session, self_rate, scan_hierarchy, save_anchor, think_back, check_drift, save_mem, list_shelves, recall_mems, hierarchy_prune, hierarchy_migrate
+- **4 core tools + 10 extensions** — declare_intent, map_context, compact_session, self_rate, scan_hierarchy, save_anchor, think_back, check_drift, save_mem, list_shelves, recall_mems, hierarchy_prune, hierarchy_migrate, export_cycle
 - **Configurable governance** — strict / assisted / permissive modes
 - **User-driven** — no agent hierarchy, you stay in control
 - **Simple state** — 3-level hierarchy with automatic drift detection
@@ -23,9 +23,9 @@ Trajectory (Level 1) → Tactic (Level 2) → Action (Level 3)
 
 ---
 
-## Tools (13 Total)
+## Tools (14 Total)
 
-HiveMind provides 13 tools organized in 5 groups:
+HiveMind provides 14 tools organized in 6 groups:
 
 | Group | Tools | Purpose |
 |-------|-------|---------|
@@ -34,6 +34,7 @@ HiveMind provides 13 tools organized in 5 groups:
 | **Cognitive Mesh** | `scan_hierarchy`, `save_anchor`, `think_back`, `check_drift` | Context awareness & drift detection |
 | **Mems Brain** | `save_mem`, `list_shelves`, `recall_mems` | Persistent cross-session memory |
 | **Hierarchy Ops** | `hierarchy_prune`, `hierarchy_migrate` | Tree maintenance & migration |
+| **Cycle Intelligence** | `export_cycle` | Capture subagent results into hierarchy + mems |
 
 ### Core Tools
 
@@ -381,6 +382,70 @@ This ensures that after LLM context compaction, the agent still knows what it wa
 
 ---
 
+## Skill System — Behavioral Governance
+
+HiveMind ships 5 skills that teach agents HOW to use the tools effectively. Modeled after the `using-superpowers` pattern — a bootstrap gate forces a checkpoint, then discipline skills provide content.
+
+### Architecture
+
+```
+skills/
+├── hivemind-governance/        ← BOOTSTRAP (loaded every turn — gate + checkpoint)
+├── session-lifecycle/          ← DISCIPLINE (starting, updating, closing sessions)
+├── evidence-discipline/        ← DISCIPLINE (prove, don't claim; verify before completion)
+├── context-integrity/          ← DISCIPLINE (detect drift, repair state, survive compaction)
+└── delegation-intelligence/    ← DISCIPLINE (parallel vs sequential, export_cycle, team patterns)
+```
+
+### Three-Force Framework
+
+Skills balance incentives, not just punishment:
+
+| Force | Purpose | Order |
+|-------|---------|-------|
+| **REWARD** | Show how tools make agent smarter (cognitive prosthetics) | First |
+| **CONSEQUENCE** | Natural cost of skipping (not punishment) | Second |
+| **RATIONALIZATION** | Explicit "if you think X, reality is Y" defense | Last resort |
+
+### Activation (Two Entry Points)
+
+1. **AGENTS.md anchor** — `<EXTREMELY-IMPORTANT>` block read by any agent tool
+2. **`session-lifecycle.ts` hook** — injects skill checkpoint into `<hivemind>` block every turn
+
+### `export_cycle` — Capture Subagent Intelligence
+
+**When to use:** After EVERY subagent (Task) returns a result.
+
+**Agent thought:** *"Subagent just returned — I need to capture what happened"*
+
+```typescript
+export_cycle({
+  outcome: "success" | "partial" | "failure",
+  findings: "What was learned or decided (1-3 sentences)"
+})
+```
+
+**What the internal scripts do automatically:**
+1. Updates hierarchy tree — action node → complete/blocked
+2. Saves findings to mems brain — shelf `cycle-intel`, tagged with timestamp
+3. Links to timestamp chain — grep-able across all artifacts
+4. Clears `pending_failure_ack` flag if present
+
+**Auto-capture hook (safety net):**
+The `tool.execute.after` hook auto-captures ALL Task returns into `brain.cycle_log[]`:
+- Last message (first 500 chars)
+- Failure signal detection → sets `pending_failure_ack`
+- Tool use count from the cycle
+- This fires regardless of whether `export_cycle` is called
+
+**Failure accountability:**
+If a subagent result contains failure signals (failed, error, blocked, partially, unable), `pending_failure_ack` is set in brain state. Until the agent calls `export_cycle` or `map_context({ status: "blocked" })`, the system prompt warns every turn:
+```
+⚠ SUBAGENT REPORTED FAILURE. Call export_cycle or map_context with status "blocked" before proceeding.
+```
+
+---
+
 ## Best Practices
 
 1. **Always start with `declare_intent`** — Sets the trajectory and unlocks session
@@ -435,6 +500,7 @@ This ensures that after LLM context compaction, the agent still knows what it wa
 - **1.6.0** — Integration reality check: 6 critical bugs fixed
 - **2.0.0** — Integration hardening: 35 issues resolved, dead code removed, production gate cleanup. 11 tools, 4 hooks
 - **2.1.0** — Hierarchy redesign: navigable tree engine, detection engine, per-session files, manifest, configurable thresholds, migration path. 13 tools, 4 hooks, 489 tests
+- **2.2.0** — Skill system: 5 behavioral governance skills (bootstrap gate + 4 discipline), export_cycle tool, auto-capture hook, three-force framework (reward/consequence/rationalization). 14 tools, 4 hooks, 5 skills
 
 ---
 
