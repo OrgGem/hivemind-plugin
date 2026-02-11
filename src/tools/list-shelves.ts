@@ -17,7 +17,7 @@ export function createListShelvesTool(directory: string): ToolDefinition {
       "Show what's stored in the Mems Brain — shelf counts and recent entries. " +
       "Use this to check what long-term memories exist before searching.",
     args: {},
-    async execute() {
+    async execute(_args, _context) {
       const memsState = await loadMems(directory);
 
       if (memsState.mems.length === 0) {

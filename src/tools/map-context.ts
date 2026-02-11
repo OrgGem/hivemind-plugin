@@ -44,7 +44,7 @@ export function createMapContextTool(directory: string): ToolDefinition {
         .optional()
         .describe("Status of this context item (default: active)"),
     },
-    async execute(args) {
+    async execute(args, _context) {
       const stateManager = createStateManager(directory)
       const status = args.status ?? "active"
 

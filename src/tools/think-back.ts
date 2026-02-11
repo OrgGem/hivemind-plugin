@@ -14,7 +14,7 @@ export function createThinkBackTool(directory: string): ToolDefinition {
       "Pause and refocus. Shows your current trajectory, anchors, " +
       "what you've accomplished, and any issues. Use when you feel lost or stuck.",
     args: {},
-    async execute() {
+    async execute(_args, _context) {
       const stateManager = createStateManager(directory);
       const state = await stateManager.load();
       if (!state) {

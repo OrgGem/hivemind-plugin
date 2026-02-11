@@ -12,7 +12,7 @@ export function createScanHierarchyTool(directory: string): ToolDefinition {
       "See your current session state — hierarchy, metrics, and anchors. " +
       "Call this when you want to know what you're working on.",
     args: {},
-    async execute() {
+    async execute(_args, _context) {
       const stateManager = createStateManager(directory);
       const state = await stateManager.load();
       if (!state) {

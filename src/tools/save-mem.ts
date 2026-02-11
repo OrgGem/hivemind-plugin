@@ -31,7 +31,7 @@ export function createSaveMemTool(directory: string): ToolDefinition {
         .optional()
         .describe("Comma-separated tags for searchability (e.g., 'auth,jwt,middleware')"),
     },
-    async execute(args) {
+    async execute(args, _context) {
       const stateManager = createStateManager(directory);
       const state = await stateManager.load();
       const sessionId = state?.session.id || "unknown";

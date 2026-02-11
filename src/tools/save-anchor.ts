@@ -15,7 +15,7 @@ export function createSaveAnchorTool(directory: string): ToolDefinition {
       key: tool.schema.string().describe("Short label for the anchor (e.g., 'DB_SCHEMA', 'API_PORT')"),
       value: tool.schema.string().describe("The immutable fact or constraint"),
     },
-    async execute(args) {
+    async execute(args, _context) {
       const stateManager = createStateManager(directory);
       const state = await stateManager.load();
       const sessionId = state?.session.id || "unknown";

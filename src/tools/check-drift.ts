@@ -14,7 +14,7 @@ export function createCheckDriftTool(directory: string): ToolDefinition {
       "Check if your current work aligns with your declared trajectory. " +
       "Returns a drift report with health indicators. Use before marking work complete.",
     args: {},
-    async execute() {
+    async execute(_args, _context) {
       const stateManager = createStateManager(directory);
       const state = await stateManager.load();
       if (!state) {

@@ -42,7 +42,7 @@ export function createCompactSessionTool(directory: string): ToolDefinition {
         .optional()
         .describe("Optional 1-line summary of what was accomplished"),
     },
-    async execute(args) {
+    async execute(args, _context) {
       const stateManager = createStateManager(directory)
       const config = await loadConfig(directory)
 

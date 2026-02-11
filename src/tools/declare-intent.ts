@@ -45,7 +45,7 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
         .optional()
         .describe("Why this mode? (optional context)"),
     },
-    async execute(args) {
+    async execute(args, _context) {
       const config = await loadConfig(directory)
       const stateManager = createStateManager(directory)
 

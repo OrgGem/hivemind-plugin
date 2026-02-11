@@ -28,7 +28,7 @@ export function createRecallMemsTool(directory: string): ToolDefinition {
         .optional()
         .describe("Optional: filter results to a specific shelf (e.g., 'errors', 'decisions')"),
     },
-    async execute(args) {
+    async execute(args, _context) {
       const memsState = await loadMems(directory);
 
       if (memsState.mems.length === 0) {

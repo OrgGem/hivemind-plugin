@@ -37,7 +37,7 @@ export function createSelfRateTool(directory: string): ToolDefinition {
         .optional()
         .describe("What you're working on right now (optional)"),
     },
-    async execute(args) {
+    async execute(args, _context) {
       const stateManager = createStateManager(directory)
       const log = await createLogger(
         join(directory, ".hivemind", "logs"),
