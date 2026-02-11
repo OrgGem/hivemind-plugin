@@ -77,19 +77,19 @@ export const HiveMindPlugin: Plugin = async ({
     /**
      * Custom tools for session governance
      */
-    tool: [
-      createDeclareIntentTool(effectiveDir),
-      createMapContextTool(effectiveDir),
-      createCompactSessionTool(effectiveDir),
-      createSelfRateTool(effectiveDir),
-      createScanHierarchyTool(effectiveDir),
-      createSaveAnchorTool(effectiveDir),
-      createThinkBackTool(effectiveDir),
-      createCheckDriftTool(effectiveDir),
-      createSaveMemTool(effectiveDir),
-      createListShelvesTool(effectiveDir),
-      createRecallMemsTool(effectiveDir),
-    ],
+    tool: {
+      declare_intent: createDeclareIntentTool(effectiveDir),
+      map_context: createMapContextTool(effectiveDir),
+      compact_session: createCompactSessionTool(effectiveDir),
+      self_rate: createSelfRateTool(effectiveDir),
+      scan_hierarchy: createScanHierarchyTool(effectiveDir),
+      save_anchor: createSaveAnchorTool(effectiveDir),
+      think_back: createThinkBackTool(effectiveDir),
+      check_drift: createCheckDriftTool(effectiveDir),
+      save_mem: createSaveMemTool(effectiveDir),
+      list_shelves: createListShelvesTool(effectiveDir),
+      recall_mems: createRecallMemsTool(effectiveDir),
+    },
 
     /**
      * Hook: System prompt transformation
