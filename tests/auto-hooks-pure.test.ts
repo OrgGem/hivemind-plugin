@@ -1,6 +1,6 @@
 /**
  * Auto-Hooks Pure Function Tests
- * Tests for staleness, chain-analysis, commit-advisor, tool-activation
+ * Tests for staleness, chain-analysis, tree-chain-breaks, commit-advisor, tool-activation
  */
 
 import {
@@ -9,11 +9,12 @@ import {
 } from "../src/schemas/brain-state.js";
 import { createConfig } from "../src/schemas/config.js";
 import { isSessionStale, getStalenessInfo } from "../src/lib/staleness.js";
-import { detectChainBreaks } from "../src/lib/chain-analysis.js";
+import { detectChainBreaks, detectTreeChainBreaks } from "../src/lib/chain-analysis.js";
 import { shouldSuggestCommit } from "../src/lib/commit-advisor.js";
 import { getToolActivation } from "../src/lib/tool-activation.js";
 
 import type { BrainState } from "../src/schemas/brain-state.js";
+import type { TimestampGap } from "../src/lib/hierarchy-tree.js";
 
 // ─── Harness ─────────────────────────────────────────────────────────
 
@@ -174,6 +175,57 @@ function test_chain_analysis() {
   const tacticTraj = makeState({ trajectory: "Build auth", tactic: "Implement JWT" });
   const breaks8 = detectChainBreaks(tacticTraj);
   assert(breaks8.length === 0, "tactic + trajectory but no action → 0 breaks");
+}
+
+// ─── Tree Chain Breaks Tests ─────────────────────────────────────────
+
+function test_tree_chain_breaks() {
+  process.stderr.write("\n--- tree-chain-breaks ---\n");
+
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
+
+  // 1. Empty gaps → 0 breaks
+  const breaks1 = detectTreeChainBreaks([]);
+  assert(breaks1.length === 0, "empty gaps → 0 breaks");
+
+  // 2. Healthy gap (below threshold) → 0 breaks
+  const healthyGap: TimestampGap = {
+    from: "301411022026",
+    to: "451411022026",
+    gapMs: 15 * 60 * 1000, // 15 min
+    relationship: "sibling",
+    severity: "healthy",
+  };
+  const breaks2 = detectTreeChainBreaks([healthyGap]);
+  assert(breaks2.length === 0, "healthy gap → 0 breaks");
+
+  // 3. Stale gap (above threshold) → 1 break with issue "stale_gap"
+  const staleGap: TimestampGap = {
+    from: "301411022026",
+    to: "301711022026",
+    gapMs: 3 * 60 * 60 * 1000, // 3 hours
+    relationship: "parent-child",
+    severity: "stale",
+  };
+  const breaks3 = detectTreeChainBreaks([staleGap]);
+  assert(breaks3.length === 1 && breaks3[0].issue === "stale_gap", "stale gap → 1 stale_gap break");
+
+  // 4. Break message includes hour count
+  assert(breaks3[0].message.includes("3"), "break message includes hour count");
+
+  // 5. Break message includes relationship
+  assert(breaks3[0].message.includes("parent-child"), "break message includes relationship");
+
+  // 6. Custom threshold (1 hour)
+  const warmGap: TimestampGap = {
+    from: "301411022026",
+    to: "301511022026",
+    gapMs: 1.5 * 60 * 60 * 1000, // 1.5 hours
+    relationship: "sibling",
+    severity: "warm",
+  };
+  const breaks4 = detectTreeChainBreaks([warmGap], 1 * 60 * 60 * 1000); // 1 hour threshold
+  assert(breaks4.length === 1, "custom 1hr threshold catches warm gap");
 }
 
 // ─── Commit Advisor Tests ────────────────────────────────────────────
@@ -337,6 +389,7 @@ function main() {
 
   test_staleness();
   test_chain_analysis();
+  test_tree_chain_breaks();
   test_commit_advisor();
   test_tool_activation();
 
