@@ -102,8 +102,9 @@ Even with perfect tools, they need activation WITHOUT agent cooperation:
 | Config dead fields wired | `src/schemas/config.ts` | — | — |
 | CLI init updated | `src/cli/init.ts` | — | — |
 | Ecosystem verification utility | `bin/hivemind-tools.cjs` | ~869 | — |
+| export_cycle tool + auto-capture hook | `src/tools/export-cycle.ts`, `src/hooks/soft-governance.ts` | ~130 | 36 |
 | Per-session stamp files + manifest | `planning-fs.ts` + `declare-intent.ts` | — | — |
-| **TOTAL** | **42 source files** | — | **489 assertions** |
+| **TOTAL** | **43 source files** | — | **607 assertions** |
 
 ### Verified Gaps (audited 2026-02-12)
 
@@ -403,7 +404,8 @@ hivemind-plugin/
 │       ├── save-mem.ts               # Tool: persist cross-session memories
 │       ├── list-shelves.ts           # Tool: show mem shelf overview
 │       ├── recall-mems.ts            # Tool: search memories across sessions
-│       └── hierarchy.ts              # Tool: hierarchy_prune + hierarchy_migrate
+│       ├── hierarchy.ts              # Tool: hierarchy_prune + hierarchy_migrate
+│       └── export-cycle.ts           # Tool: capture subagent results into tree + mems
 ├── tests/
 │   ├── auto-hooks-pure.test.ts        # 36 assertions
 │   ├── complexity.test.ts             # 28 assertions
@@ -418,7 +420,8 @@ hivemind-plugin/
 │   ├── session-export.test.ts         # 32 assertions
 │   ├── session-structure.test.ts      # 18 assertions
 │   ├── soft-governance.test.ts        # 27 assertions
-│   └── tool-gate.test.ts             # 12 assertions
+│   ├── tool-gate.test.ts             # 12 assertions
+│   └── cycle-intelligence.test.ts   # 36 assertions
 ├── AGENTS.md                          # Ground truth for what exists in codebase
 ├── CHANGELOG.md                       # User-facing changes
 ├── package.json                       # npm package config
@@ -438,7 +441,7 @@ hivemind-plugin/
 │       └── SKILL.md                      # Decision flowchart, auto-capture, subagent prompt engineering
 ```
 
-**42 source files. 5 skill files. 14 test files. 489 assertions. 0 orphans.**
+**43 source files. 5 skill files. 17 test files. 607 assertions. 0 orphans.**
 
 ---
 
@@ -493,7 +496,7 @@ hivemind-plugin/
 |-----------|------|-------|---------|------------|
 | Pre-1 | 2026-02-11 | Hierarchy redesign — 17 implementation steps | All complete. Tree engine, detection, hooks wired. | 489 |
 | Skill-0 | 2026-02-11 | Skill system — 5 skills (bootstrap + 4 discipline) | Written. 3918 total words. Needs code wiring. | — |
-| 1 | PENDING | Sophisticated tools-in-tools + activation wiring + `export_cycle` tool + auto-capture hook | — | — |
+| 1 | 2026-02-11 | Sophisticated tools-in-tools + activation wiring + `export_cycle` tool + auto-capture hook | **COMPLETE.** 12/12 sub-tasks done. export_cycle tool, auto-capture hook, pending_failure_ack, map_context blocked clears ack. | 607 |
 | 2 | PENDING | Entry testing — full chain + edge cases | — | — |
 | 3+ | PENDING | To be defined based on iteration 1 outcomes | — | — |
 

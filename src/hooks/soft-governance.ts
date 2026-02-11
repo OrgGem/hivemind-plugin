@@ -21,7 +21,7 @@
 import type { Logger } from "../lib/logging.js"
 import type { HiveMindConfig } from "../schemas/config.js"
 import { createStateManager } from "../lib/persistence.js"
-import { addViolationCount, incrementTurnCount, setLastCommitSuggestionTurn } from "../schemas/brain-state.js"
+import { addViolationCount, incrementTurnCount, setLastCommitSuggestionTurn, addCycleLogEntry } from "../schemas/brain-state.js"
 import { detectChainBreaks } from "../lib/chain-analysis.js"
 import { shouldSuggestCommit } from "../lib/commit-advisor.js"
 import { detectLongSession } from "../lib/long-session.js"
@@ -152,6 +152,18 @@ export function createSoftGovernanceHook(
       const longSession = detectLongSession(newState, config.auto_compact_on_turns);
       if (longSession.isLong) {
         await log.warn(longSession.suggestion);
+      }
+
+      // === Cycle Intelligence: Auto-capture Task tool returns ===
+      if (input.tool === "task") {
+        const taskOutput = _output.output ?? "";
+        newState = addCycleLogEntry(newState, input.tool, taskOutput);
+        if (newState.pending_failure_ack) {
+          await log.warn(
+            `Cycle intelligence: subagent reported failure signals. pending_failure_ack set. Agent must call export_cycle or map_context(blocked) to acknowledge.`
+          );
+        }
+        await log.debug(`Cycle intelligence: auto-captured Task return (${taskOutput.length} chars, failure=${newState.pending_failure_ack})`);
       }
 
       // Single save at the end

@@ -233,6 +233,11 @@ export function createSessionLifecycleHook(
         warningLines.push("⚠ High drift detected. Use map_context to re-focus.")
       }
 
+      // PENDING FAILURE ACK — subagent reported failure, agent hasn't acknowledged
+      if (state.pending_failure_ack) {
+        warningLines.push("⚠ SUBAGENT REPORTED FAILURE. Call export_cycle or map_context with status \"blocked\" before proceeding.")
+      }
+
       // Chain breaks
       const chainBreaks = detectChainBreaks(state)
       if (chainBreaks.length > 0) {

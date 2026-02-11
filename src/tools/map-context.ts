@@ -23,6 +23,7 @@ import { createStateManager } from "../lib/persistence.js"
 import {
   resetTurnCount,
   updateHierarchy,
+  clearPendingFailureAck,
 } from "../schemas/brain-state.js"
 import type { HierarchyLevel, ContextStatus } from "../schemas/hierarchy.js"
 import {
@@ -145,6 +146,11 @@ export function createMapContextTool(directory: string): ToolDefinition {
 
       // Reset turn count on context update (re-engagement signal)
       state = resetTurnCount(state)
+
+      // Clear pending_failure_ack when agent acknowledges with blocked status
+      if (status === "blocked" && state.pending_failure_ack) {
+        state = clearPendingFailureAck(state)
+      }
 
       // Save state
       await stateManager.save(state)

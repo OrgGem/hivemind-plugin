@@ -59,6 +59,30 @@ export interface MetricsState {
   keyword_flags: string[];               // detected keywords this session
 }
 
+/** Captured subagent cycle result (auto-captured by tool.execute.after) */
+export interface CycleLogEntry {
+  /** Epoch ms when captured */
+  timestamp: number;
+  /** Tool name that was captured (usually 'task') */
+  tool: string;
+  /** First 500 chars of tool output */
+  output_excerpt: string;
+  /** Whether failure signals were detected in output */
+  failure_detected: boolean;
+  /** Which failure keywords were found */
+  failure_keywords: string[];
+}
+
+/** Failure signal keywords — if ANY appear in output, failure_detected = true */
+export const FAILURE_KEYWORDS = [
+  "failed", "failure", "error", "blocked", "unable",
+  "partially", "could not", "cannot", "not found", "crashed",
+  "timed out", "timeout", "exception", "rejected",
+] as const;
+
+/** Max entries in cycle_log before oldest are dropped */
+export const MAX_CYCLE_LOG = 10;
+
 export interface BrainState {
   session: SessionState;
   hierarchy: HierarchyState;
@@ -76,6 +100,12 @@ export interface BrainState {
   compaction_count: number;
   /** Epoch ms of last compaction — used for gap detection */
   last_compaction_time: number;
+
+  // Cycle intelligence fields
+  /** Auto-captured subagent results (capped at MAX_CYCLE_LOG entries) */
+  cycle_log: CycleLogEntry[];
+  /** True when a subagent reported failure and agent hasn't acknowledged it */
+  pending_failure_ack: boolean;
 }
 
 export const BRAIN_STATE_VERSION = "1.0.0";
@@ -136,6 +166,9 @@ export function createBrainState(
     next_compaction_report: null,
     compaction_count: 0,
     last_compaction_time: 0,
+    // Cycle intelligence fields
+    cycle_log: [],
+    pending_failure_ack: false,
   };
 }
 
@@ -287,6 +320,53 @@ export function addViolationCount(state: BrainState): BrainState {
       ...state.metrics,
       violation_count: state.metrics.violation_count + 1,
     },
+  };
+}
+
+/**
+ * Auto-capture a subagent tool output into cycle_log.
+ * Detects failure keywords and sets pending_failure_ack if found.
+ * Caps cycle_log at MAX_CYCLE_LOG entries (drops oldest).
+ */
+export function addCycleLogEntry(
+  state: BrainState,
+  tool: string,
+  output: string
+): BrainState {
+  const excerpt = output.slice(0, 500);
+  const lowerExcerpt = excerpt.toLowerCase();
+  const foundKeywords = FAILURE_KEYWORDS.filter(kw => lowerExcerpt.includes(kw));
+  const failureDetected = foundKeywords.length > 0;
+
+  const entry: CycleLogEntry = {
+    timestamp: Date.now(),
+    tool,
+    output_excerpt: excerpt,
+    failure_detected: failureDetected,
+    failure_keywords: foundKeywords,
+  };
+
+  const newLog = [...(state.cycle_log ?? []), entry];
+  // Cap at MAX_CYCLE_LOG
+  const trimmedLog = newLog.length > MAX_CYCLE_LOG
+    ? newLog.slice(newLog.length - MAX_CYCLE_LOG)
+    : newLog;
+
+  return {
+    ...state,
+    cycle_log: trimmedLog,
+    // Set pending_failure_ack if failure detected (don't clear existing)
+    pending_failure_ack: state.pending_failure_ack || failureDetected,
+  };
+}
+
+/**
+ * Clear the pending_failure_ack flag (called by export_cycle or map_context with blocked status).
+ */
+export function clearPendingFailureAck(state: BrainState): BrainState {
+  return {
+    ...state,
+    pending_failure_ack: false,
   };
 }
 
