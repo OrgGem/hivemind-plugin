@@ -1,80 +1,146 @@
 # Feature Landscape
 
-**Domain:** AI Agent Context Governance Plugin (OpenCode)
+**Domain:** AI Agent Context Governance Plugin (OpenCode ecosystem)
 **Researched:** 2026-02-12
+**Confidence:** HIGH (derived from SDK capabilities, 8 plugin codebases, idumb-v2 concepts, GSD/Spec-kit analysis)
 
-## Table Stakes
+## Table Stakes (Must Have — Agents Are Ungoverned Without These)
 
-Features users expect. Missing = product feels incomplete.
+### 1. Session-Aware Governance (via SDK `client.session.*`)
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Session lifecycle (declare→map→compact) | Core value prop. 3 tools that make agent context trackable. | ✅ DONE | 14 tools built, 705 tests passing |
-| Hierarchy tree with timestamps | Agents lose track after compaction. Stamps enable cross-session grep. | ✅ DONE | MiMiHrHrDDMMYYYY stamps, tree engine |
-| Drift detection + escalation | Without this, governance is just a label. Must detect AND push back. | ✅ DONE | 4-tier escalation, 11 counter-excuses |
-| Evidence discipline from session start | **ST12 FAIL**: Currently only taught in strict mode bootstrap. Must fire in ALL modes. | High | Bootstrap condition needs `turn_count <= 2` not `LOCKED` |
-| Config persistence across compaction | Settings must survive. Users don't re-configure every session. | ✅ DONE | config.json separate from brain.json |
-| Fail-safe non-breaking hooks | Plugin must NEVER crash the host. All hooks try/catch. | ✅ DONE | P3 pattern on all 4 hooks |
-| One-command system health check | User must validate entire system with one command. | ✅ DONE | `ecosystem-check` 9-step chain |
-| Permissive mode actually silent | **ST11 CONDITIONAL**: Mode documented as "silent" but pushes warnings. | Med | Add governance_mode filter to session-lifecycle.ts |
+| Real session lifecycle tracking | Session = on-going plan. Without this, governance is guessing. | Med | `client.session.get()`, `client.event.subscribe()` for `session.created/idle/compacted` |
+| Silent context injection | Inject governance context without triggering AI response | Low | `client.session.prompt({ noReply: true })` — verified pattern from plannotator |
+| Session message history access | Evidence tracking — what did the agent actually say/do? | Low | `client.session.messages()` returns full message + parts history |
+| Session diff tracking | Know what files changed in a session | Low | `session.diff` event, `client.session.diff()` |
+| Multi-session awareness | Agent spawns subagents — governance must track the tree | High | `client.session.children()`, `client.session.list()` |
 
-## Differentiators
+### 2. Visual Feedback (via SDK `client.tui.*`)
 
-Features that set product apart. Not expected, but valued.
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Toast notifications for governance events | User must SEE governance working — not buried in system prompt | Low | `client.tui.showToast({ body: { message, variant: "info"|"success"|"warning" } })` |
+| Drift warning toasts | Visible drift alerts (not just system prompt injection) | Low | Toast with `variant: "warning"` when drift detected |
+| Session health toasts | Periodic health status | Low | Toast on session idle showing turn count, drift score |
+| Prompt suggestions | Suggest next HiveMind action via prompt append | Low | `client.tui.appendPrompt({ body: { text: "declare_intent..." } })` |
+
+### 3. Codebase Awareness (via SDK `client.file.*` + `client.find.*`)
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Text search (ripgrep) | Fast content search without custom tooling | Low | `client.find.text({ query: { pattern: "..." } })` — already ripgrep-powered |
+| File discovery | Find files by pattern | Low | `client.find.files({ query: { query: "*.ts", type: "file" } })` |
+| Symbol search | LSP-powered symbol lookup | Low | `client.find.symbols({ query: { query: "className" } })` |
+| File reading | Read file contents through SDK | Low | `client.file.read({ query: { path: "src/index.ts" } })` |
+| Git status | Track modified/staged files | Low | `client.file.status()` |
+
+### 4. Event-Driven Governance (via SDK `event` hook)
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Session lifecycle events | Know when sessions start/end/compact/error | Med | `session.created`, `session.idle`, `session.compacted`, `session.error` |
+| File edit tracking | Know what files agent modified in real-time | Low | `file.edited`, `file.watcher.updated` events |
+| Todo tracking | React to agent's TodoWrite changes | Low | `todo.updated` event |
+| Command tracking | Know what slash commands were used | Low | `command.executed` event |
+| VCS branch tracking | Git branch context for traceability | Low | `vcs.branch.updated` event |
+
+### 5. Framework Integration (GSD + Spec-kit)
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| Framework detection | Auto-detect GSD (`.planning/`), Spec-kit (`.spec-kit/`) | Med | File marker detection like idumb-v2's framework-detector.ts |
+| Framework-aware drift | Drift detection that understands framework artifacts | High | Reading STATE.md/ROADMAP.md to know what phase agent should be in |
+| Framework alignment warnings | Toast when agent drifts from framework's current phase/plan | Med | Compare hierarchy focus vs framework state |
+
+### 6. Core Governance (Existing — Must Survive v3)
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| 3-level hierarchy (trajectory/tactic/action) | Context structure for agent focus | Existing | Keep — works well |
+| 14 tools (declare_intent, map_context, etc.) | Agent-callable governance actions | Existing | Keep — extend with SDK awareness |
+| Evidence gate system (4-tier escalation) | Argue-back when agent ignores warnings | Existing | Enhance with dynamic argue-back |
+| Mems brain (persistent memory) | Cross-session knowledge | Existing | Enhance with SDK session data |
+| Skills system (5 behavioral skills) | Teach agents governance discipline | Existing | Fix bootstrap (ST12) |
+
+## Differentiators (What Sets HiveMind Apart)
+
+### 1. SDK-Powered Session Intelligence
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| GSD framework integration | Auto-detect GSD projects, read STATE.md, inject GSD context into governance. HiveMind becomes the governance brain for GSD orchestration. | High | Parse STATE.md, detect phases/plans, align hierarchy with GSD structure |
-| Spec-kit framework integration | Auto-detect spec-kit projects, read spec files, align governance with spec structure. | Med | Marker detection (.spec-kit/, spec-kit.config.json), spec file parsing |
-| Fast codebase extraction (Repomix) | One-command codebase dump for agent consumption. `--compress` for signatures-only. Token budget awareness. | Med | Shell out to repomix with smart defaults, parse token-count-tree |
-| Fast grep/glob/regex tools | Built-in tools for rapid codebase search without full file reads. Agents search instead of guessing. | Med | Wrap rg/fd with smart defaults, return structured results |
-| Ralph-loop orchestration pattern | User stories → agent iterations → completion control. Prevents infinite loops. | High | Implement prd.json schema, loop-state tracking, acceptance criteria gates |
-| Argue-back system with counter-excuses | System doesn't just warn — it challenges agent rationalizations with evidence. | ✅ DONE | 11 counter-excuses, 4-tier escalation |
-| Cross-session memory (mems brain) | Agents remember across compactions. Knowledge persists. | ✅ DONE | save_mem, recall_mems, list_shelves |
-| Ink TUI dashboard | Visual system state in terminal. Real-time hierarchy, metrics, traces. | ✅ DONE | server.ts renders Ink components |
-| Export cycle intelligence | Capture subagent results into hierarchy + mems. Auto-capture hook as safety net. | ✅ DONE | export_cycle tool + auto-capture in soft-governance |
-| "I am retard" mode (max governance) | For users who want maximum hand-holding. Forces strict, skeptical, beginner settings. | ✅ DONE | 5 automation levels, retard forces strict |
+| Session auto-archive via SDK | Use `client.session.summarize()` to auto-summarize before compact | Med | Real summarization, not just last message capture |
+| Cross-session memory linking | When new session created, inject relevant mems from brain | High | `session.created` event → `recall_mems` → `session.prompt({ noReply: true })` |
+| Session health dashboard via toasts | Periodic governance health in visual toasts, not hidden in prompt | Low | Combines `showToast` with detection engine signals |
+| Session diff evidence | Use `session.diff` to prove what agent actually changed (not what it claimed) | Med | Evidence discipline with real git diffs |
 
-## Anti-Features
+### 2. Smart Extraction (via BunShell `$`)
 
-Features to explicitly NOT build.
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Repomix integration | One-command codebase packing: `$\`npx repomix --compress\`` | Med | Wrap repomix via BunShell, output to tool result |
+| Targeted extraction | Combine `client.find.text()` + `client.file.read()` for precise context assembly | Med | Agent asks "what's relevant?" — HiveMind assembles the answer |
+| Token-aware extraction | Count tokens before returning to agent | Med | Repomix `--token-count-tree` or manual tokenization |
+
+### 3. Orchestration Awareness (Ralph Loop + GSD Patterns)
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Loop state tracking | Track prd.json → story progression → completion | High | Persist loop state across compactions |
+| Quality gate enforcement | After each story, verify quality gates via `$` | Med | Run test commands, report results via toast |
+| Multi-agent coordination | Track parent→child session relationships | High | `client.session.children()`, `session.created` events |
+
+### 4. Self-Validation Intelligence
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| IGNORED escalation tier | When agent repeatedly ignores governance warnings | Med | Track consecutive ignores, escalate visually via toasts |
+| Dynamic argue-back | Context-specific counter-arguments (not static strings) | High | Read what agent is doing, generate specific rebuttals |
+| `hivemind self-check` CLI | One command to validate entire system state | Med | Ecosystem check + brain validation + hierarchy integrity |
+
+## Anti-Features (Things to Deliberately NOT Build)
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| Hard-blocking tool execution | OpenCode v1.1+ plugins CANNOT block tools. `tool.execute.before` returns void. | Track violations, escalate pressure via system prompt. Soft governance. |
-| Agent hierarchy (boss/worker) | User stays in control. No autonomous agent spawning by HiveMind. | User-driven tools. HiveMind suggests, user decides. |
-| Custom LLM calls from plugin | Plugin SDK doesn't support LLM invocation. Would add complexity. | Use system prompt injection to guide agent behavior. |
-| Database persistence | Overkill for session state. Loses git-trackability. | JSON files in .hivemind/. Human-readable, git-friendly. |
-| Framework-specific commands in CLI | Don't add `hivemind gsd start` or `hivemind spec-kit plan`. | Framework detection is automatic. HiveMind adapts behavior, doesn't expose framework-specific CLI. |
+| **Permission blocking / tool denial** | Clashes with other plugins. Breaks user trust. Multiple plugins fighting over deny/allow = chaos. | Soft governance: inform via toast + system prompt, track via metrics, argue back with evidence. **NEVER stop tools.** |
+| **Custom LLM calls from plugin** | Expensive, unpredictable, adds latency to every turn | Use SDK's existing `client.session.prompt()` for agent-to-agent, not raw LLM calls |
+| **Heavy init-time operations** | Deadlock risk (oh-my-opencode #1301) — server blocks on plugin init | Store references during init, do work in hooks/tools only |
+| **Plugin-to-plugin communication** | No SDK mechanism, fragile via filesystem | Self-contained design — HiveMind owns its state |
+| **Replacing OpenCode's built-in tools** | Conflicts, confuses agents | Complement existing tools, add governance-specific ones |
+| **Full message history rewriting** | `messages.transform` is powerful but dangerous | Use surgically: inject context messages, don't delete/reorder existing ones |
 
 ## Feature Dependencies
 
 ```
-Evidence discipline from start → Bootstrap fires in all modes (prerequisite)
-GSD integration → Framework detector (prerequisite)
-Spec-kit integration → Framework detector (prerequisite)
-Fast extraction → Repomix installed (external dep)
-Fast grep/glob → rg/fd installed (external dep, graceful fallback)
-Ralph-loop orchestration → prd.json schema definition (prerequisite)
-Ralph-loop orchestration → loop-state.json tracking (prerequisite)
-Permissive mode fix → session-lifecycle.ts governance_mode filter (code change)
+SDK Client Integration → Session Intelligence → Cross-Session Memory
+SDK Client Integration → Visual Feedback (toasts)
+SDK Client Integration → Codebase Awareness (find/file)
+Event Hook → Event-Driven Governance → Framework Detection
+BunShell ($) → Smart Extraction (repomix)
+Framework Detection → Framework-Aware Drift
+Core Governance (existing) → Evidence Gate Enhancement
+Bootstrap Fix (ST12) → Teaching from Turn 0 (all modes)
 ```
 
-## MVP Recommendation
+## MVP Recommendation (Phase 1-2 Priority)
 
 Prioritize:
-1. **Fix ST12 (evidence from start)** — Bootstrap in all modes. Core product promise.
-2. **Fix ST11 (permissive consistency)** — Doc-code alignment. Trust issue.
-3. **GSD framework integration** — Largest user base for this product.
-4. **Fast extraction tools** — Agents need codebase awareness.
+1. **Bootstrap fix** (ST12) — governance must work in all modes from turn 0
+2. **SDK client integration** — `client`, `$`, `project`, `serverUrl` in plugin init
+3. **Toast notifications** — user SEES governance working
+4. **Event-driven tracking** — replace turn-counting with real events
+5. **Framework detection** — auto-detect GSD/Spec-kit
 
 Defer:
-- Spec-kit integration — Framework doesn't exist yet. Build when it materializes.
-- Ralph-loop orchestration — Complex, can use GSD's existing orchestration instead.
+- Orchestration control (Phase 4) — needs framework integration first
+- Self-validation IGNORED tier (Phase 5) — needs event tracking first
+- Stress test infrastructure (Phase 6) — needs everything else first
 
 ## Sources
 
-- Stress test verification: 6 parallel sub-agent reports (this conversation)
-- GSD framework: /Users/apple/.config/opencode/get-shit-done/ (v1.18.0)
-- Repomix: https://github.com/yamadashy/repomix
-- Spec-kit markers: /Users/apple/idumb-v2/src/lib/framework-detector.ts
+- OpenCode SDK documentation (official)
+- `@opencode-ai/plugin@1.1.53` + `@opencode-ai/sdk@1.1.53` type definitions
+- 8 plugin codebases analyzed (dynamic-context-pruning, micode, oh-my-opencode, opencode-pty, opencode-worktree, zellij-namer, plannotator, subtask2)
+- idumb-v2 system concepts diagram
+- GSD framework analysis (30+ workflow files, 11 agent types)
+- Ralph-tui skill definitions (PRD→beads/json loop patterns)

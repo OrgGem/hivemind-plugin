@@ -1,88 +1,99 @@
 # Technology Stack
 
-**Project:** HiveMind v3 — Context Governance for OpenCode
+**Project:** HiveMind v3 — Context Governance Plugin for OpenCode
 **Researched:** 2026-02-12
+**Confidence:** HIGH (verified from SDK source, 8 real plugin codebases, official docs)
 
 ## Recommended Stack
 
 ### Core Framework
+
 | Technology | Version | Purpose | Why |
 |------------|---------|---------|-----|
-| TypeScript | 5.x | Language | Already in use. Plugin SDK requires it. Type safety critical for brain state schema. |
-| @opencode-ai/plugin | latest | Plugin SDK | Required for OpenCode integration. Provides tool(), hook(), and context injection APIs. |
-| Node.js | 22+ | Runtime | OpenCode runtime requirement. ES modules. |
+| OpenCode Plugin SDK | 1.1.53 | Plugin interface, hooks, tool registration | THE platform — plugins receive `client`, `$`, `project`, `serverUrl`. All capabilities flow from here. |
+| OpenCode SDK Client | 1.1.53 | Sessions, TUI, Files, Find, Events | **VERIFIED USABLE from plugins.** 5 of 8 ecosystem plugins use it. Enables real session management, toast notifications, file reads, text search — the foundations of governance. |
+| BunShell (`$`) | Built-in | Subprocess spawning (repomix, rg, git) | Provided as `input.$`. Tagged template syntax: `` $`repomix --output -`.text() ``. Streaming, JSON parsing, env injection. |
+| TypeScript | 5.x | Type-safe implementation | Already in use. Zod v4 for tool schemas. |
+| Node.js TAP | 21.x | Test framework | Already in use (705 assertions). Keep for consistency. |
 
-### CLI & TUI
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Ink + React | 5.x + 18.x | TUI Dashboard | Already built (v2.6.0). Ink renders React components in terminal. |
-| process.argv | native | CLI parsing | No dependency needed. `hivemind init/status/help` is simple enough. |
+### SDK Client API Surface (What We Can Use)
 
-### Testing
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| node:test + node:assert | native | Test runner | Already in use. 705 assertions passing. Zero dependencies. |
+| Client | Key Methods | HiveMind Use Case |
+|--------|-------------|-------------------|
+| `client.session` | `list`, `create`, `get`, `messages`, `prompt({ noReply: true })`, `abort`, `diff`, `summarize` | **Session = On-going Plan.** Real session lifecycle, not file-based simulation. Inject context silently via `noReply: true`. Read message history for evidence tracking. |
+| `client.tui` | `showToast`, `appendPrompt`, `executeCommand` | **Visual governance feedback.** Toast for drift warnings, argue-back, evidence reminders. Prompt append for suggested next actions. |
+| `client.file` | `read`, `status` | **Structured file access.** Read files through SDK (not raw fs). Git status for change tracking. |
+| `client.find` | `text`, `files`, `symbols` | **Fast extraction.** Ripgrep-powered text search, file discovery, LSP symbols — no need to build our own grep/glob. |
+| `client.event` | `subscribe` (SSE) | **Event-driven governance.** Subscribe to 32 event types: `session.created`, `session.idle`, `file.edited`, `session.diff`, `session.compacted` — replace turn-counting with real events. |
+| `client.app` | `log`, `agents` | **Observability.** Write structured logs, list available agents for team-awareness. |
+| `client.vcs` | `get` | **Git context.** Branch info for traceability (git hash + timestamp). |
+| `client.project` | `current` | **Project context.** Project metadata for multi-project awareness. |
 
-### Fast Extraction (NEW — v3)
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Repomix | 0.3.x | Codebase packing | Pack entire codebase into single AI-friendly file. XML/Markdown output. `--compress` mode uses tree-sitter for signature-only extraction. `--token-count-tree` for budget planning. |
-| ripgrep (rg) | system | Fast content search | 10-100x faster than grep. Respects .gitignore. Already installed on most dev machines. |
-| fd | system | Fast file search | Faster alternative to find. Respects .gitignore. |
-| tree-sitter | via repomix | AST parsing | Used by Repomix `--compress` to extract function signatures, types, interfaces without implementation bodies. |
+### Hooks We Should Use (14 available, currently using 5)
 
-### Orchestration Patterns (NEW — v3)
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| prd.json schema | internal | Loop control | Ralph-tui pattern: user stories with acceptance criteria, `passes: true/false`, `dependsOn[]`. Drives agent iteration loops. |
-| loop-state.json | internal | Iteration tracking | Tracks `currentStory`, `completedStories[]`, `failedAttempts`, `qualityGatesPassing`. |
+| Hook | Priority | Purpose | Currently Used? |
+|------|----------|---------|-----------------|
+| `tool.execute.before` | Core | Track what agent is about to do | YES |
+| `tool.execute.after` | Core | Track what agent did, detect patterns | YES |
+| `experimental.chat.system.transform` | Core | Inject governance context into system prompt | YES |
+| `experimental.session.compacting` | Core | Preserve hierarchy across compaction | YES |
+| `event` | **NEW — HIGH** | React to 32 event types — session lifecycle, file edits, idle detection, diffs | NO |
+| `chat.message` | **NEW — HIGH** | Inject context parts into user messages, tag with metadata | NO |
+| `experimental.chat.messages.transform` | **NEW — MEDIUM** | Custom context management, inject synthetic messages | NO |
+| `command.execute.before` | **NEW — MEDIUM** | Intercept slash commands, add hivemind-aware behavior | NO |
+| `shell.env` | **NEW — LOW** | Inject `HIVEMIND_SESSION_ID`, `HIVEMIND_MODE` into shell env | NO |
+| `chat.params` | Future | Adjust LLM temperature by governance mode | NO |
+| `config` | Future | React to config changes in real-time | NO |
+| `permission.ask` | **NEVER** | Block tool execution | NO — **ANTI-PATTERN: never block, never deny, never clash with other plugins** |
 
-### Framework Integration (NEW — v3)
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| Framework Detector | internal | Detect GSD/Spec-kit | Marker-based detection: `.gsd/` or `gsd.config.json` → GSD; `.spec-kit/` or `spec-kit.config.json` → Spec-kit. |
-| STATE.md parser | internal | Read GSD state | Parse GSD's STATE.md to understand current position, phase, plan, progress. |
-
-## Supporting Libraries
+### Supporting Libraries
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| node:fs/promises | native | File I/O | All persistence operations |
-| node:child_process | native | Shell commands | Git hash, repomix invocation, validation scripts |
-| node:path | native | Path manipulation | Cross-platform path handling |
+| Repomix | latest | Codebase packing (via `$` BunShell) | Fast extraction: `$\`npx repomix --compress --output -\`.text()` |
+| Ink | 5.x | TUI dashboard (already built) | CLI `hivemind dashboard` — keep as-is |
+| Zod | 4.x | Tool schema validation | Built into plugin SDK for tool definitions |
 
 ## Alternatives Considered
 
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| Test runner | node:test | vitest | Zero dependency preference. Already working with 705 assertions. |
-| CLI framework | process.argv | commander/yargs | Would add dependency for minimal gain. CLI is simple. |
-| File search | repomix + rg | custom walker | Repomix already solves this problem. Don't reinvent. |
-| Schema validation | manual + TypeScript | zod/joi | Plugin needs zero runtime deps. TypeScript types + manual validation sufficient. |
-| State persistence | JSON files | SQLite | Overkill. JSON files are human-readable, git-trackable, debuggable. |
+| Category | Recommended | Alternative | Why Not Alternative |
+|----------|-------------|-------------|---------------------|
+| File search | `client.find.text()` (SDK) | Custom rg wrapper | SDK already wraps ripgrep with structured output. Don't reinvent. |
+| File read | `client.file.read()` (SDK) | Raw `fs.readFileSync` | SDK provides patch-aware reads, respects project boundaries. Raw fs still needed for .hivemind/ internal state. |
+| User feedback | `client.tui.showToast()` | Console.log / system prompt only | Toast is VISUAL — user sees it in TUI immediately. System prompt is invisible to user. Both needed. |
+| Session tracking | `client.session.*` + `client.event` | Turn counting in brain.json | Real events > counting. `session.idle` tells you agent stopped. `session.diff` gives you what changed. `session.compacted` tells you context was compressed. |
+| Process spawning | `$` BunShell | `child_process.exec` | BunShell is provided by plugin SDK, has streaming, JSON parsing, env injection built-in. |
+| Permission blocking | **NEVER** | `permission.ask` → `deny` | **Clashes with other plugins. Breaks user trust. Soft governance only.** |
 
-## Installation
+## Plugin Input Destructuring (Current vs Target)
 
-```bash
-# Core (already installed)
-npm install @opencode-ai/plugin
+```typescript
+// CURRENT (v2.6.0) — only uses 2 of 6 inputs
+export const HiveMindPlugin: Plugin = async ({ directory, worktree }) => { ... }
 
-# Dev dependencies (already installed)
-npm install -D typescript @types/node @types/react @types/ink
-
-# New for v3 — fast extraction
-npm install -g repomix
-# OR via npx (no global install)
-npx repomix@latest
-
-# System tools (usually pre-installed)
-brew install ripgrep fd  # macOS
+// TARGET (v3) — use ALL inputs
+export const HiveMindPlugin: Plugin = async ({ 
+  client,       // SDK client — sessions, TUI, files, events
+  project,      // Project metadata
+  directory,    // Project directory
+  worktree,     // Git worktree root
+  serverUrl,    // OpenCode server URL
+  $,            // BunShell for subprocesses
+}) => { ... }
 ```
+
+**CAVEAT:** Do NOT call `client.*` during plugin init (deadlock risk — oh-my-opencode issue #1301). Store reference, use from hooks/tools only.
+
+## SDK Reference (Downloaded)
+
+Reference material stored at `.planning/research/plugin-refs/`:
+- `opencode-sdk.xml` — Official OpenCode SDK + Plugin source (compressed, 53 files)
+- 8 plugin repos for pattern reference (see ARCHITECTURE.md for analysis)
 
 ## Sources
 
-- OpenCode Plugin SDK: @opencode-ai/plugin package docs
-- Repomix: https://github.com/yamadashy/repomix (21.8k stars)
-- GSD Framework: /Users/apple/.config/opencode/get-shit-done/ (local, v1.18.0)
-- Ralph-tui patterns: /Users/apple/.agents/skills/ralph-tui-create-json/SKILL.md
-- Spec-kit markers: /Users/apple/idumb-v2/src/lib/framework-detector.ts
+- `@opencode-ai/plugin@1.1.53` type definitions (HIGH confidence)
+- `@opencode-ai/sdk@1.1.53` type definitions (HIGH confidence)
+- 8 real plugin codebases via Repomix (HIGH confidence)
+- OpenCode SDK documentation (HIGH confidence)
+- oh-my-opencode deadlock issue #1301 (HIGH confidence — verified in test code)

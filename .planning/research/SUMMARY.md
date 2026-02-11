@@ -1,76 +1,103 @@
 # Research Summary: HiveMind v3
 
-**Domain:** AI Agent Context Governance Plugin for OpenCode
+**Domain:** AI Agent Context Governance Plugin (OpenCode ecosystem)
 **Researched:** 2026-02-12
-**Overall confidence:** HIGH (brownfield project, deep codebase knowledge from 705-assertion test suite and full stress test verification)
+**Overall confidence:** HIGH
 
 ## Executive Summary
 
-HiveMind v2.6.0 is a mature context governance plugin with 14 tools, 4 hooks, 5 skills, and 705 passing test assertions across 20 test files. The stress test verification against STRESS-TEST-1.MD revealed 10 out of 12 requirements as PASS, 1 CONDITIONAL PASS (ST11: permissive mode contradiction), and 1 FAIL (ST12: agents not taught evidence/team behavior from session start in non-strict modes).
+HiveMind v3 is a fundamental architectural upgrade driven by one discovery: **the OpenCode SDK client is fully usable from within plugins**. This was verified across 5 of 8 ecosystem plugins (micode, opencode-pty, oh-my-opencode, plannotator, subtask2), with production code showing `client.session.create()`, `client.session.prompt()`, `client.tui.showToast()`, and `client.session.messages()` all working from hook and tool contexts. The only caveat is a deadlock risk when calling the client during plugin init (oh-my-opencode issue #1301).
 
-The v3 iteration adds three new capability layers: **framework integration** (GSD + Spec-kit auto-detection and context bridging), **fast extraction** (Repomix codebase packing + rg/fd search wrappers), and **orchestration patterns** (Ralph-loop style completion control with prd.json schema). These address the user's explicit requirements for supporting GSD/Spec-kit frameworks, providing fast codebase awareness tools, and controlling agent iteration loops.
+This changes everything. The current HiveMind v2.6.0 destructures only `{ directory, worktree }` from PluginInput — using 2 of 6 available fields. The SDK provides `client` (sessions, TUI, files, events, search), `$` (BunShell for subprocess spawning), `project` (metadata), and `serverUrl` (connectivity). The idumb-v2 system concepts diagram maps directly to these SDK capabilities: Session Management uses `client.session.*`, Visual Feedback uses `client.tui.showToast()`, Fast Extraction uses `client.find.*` + `client.file.*` + `$` BunShell for Repomix, and the Shared Brain uses `client.session.messages()` for cross-session evidence tracking.
 
-The critical path is fixing ST11/ST12 first (these are the product's core promise), then building framework integration (the highest-value differentiator), then fast extraction tools (enabling agent codebase awareness), with orchestration patterns and spec-kit integration deferred as they depend on external frameworks that either don't exist yet (spec-kit) or have their own orchestration (GSD).
+The research also confirmed a non-negotiable architectural principle: **never block, never deny, never stop tools**. Zero plugins in the ecosystem use `permission.ask` for blocking. oh-my-opencode (the largest plugin at 1.5MB, 41 internal hooks) explicitly avoids it. Permission blocking creates plugin wars — multiple plugins fighting over deny/allow = chaos. HiveMind's power is in awareness (toasts, system prompt, argue-back, tracking), not enforcement.
+
+Two frameworks are targeted for first-class support: GSD (Get Shit Done) with its `.planning/` directory, STATE.md-driven workflow, and 11 agent types; and Spec-kit with its `.spec-kit/` directory and governance markers. The research deeply analyzed GSD's entire architecture (30+ workflow files, wave-based execution, revision loops) and Spec-kit's framework detection patterns from idumb-v2. Ralph-tui's loop orchestration pattern (prd.json → story selection → completion tracking) provides the model for autonomous multi-story work management.
 
 ## Key Findings
 
-**Stack:** Keep TypeScript + @opencode-ai/plugin. Add Repomix for extraction, rg/fd for search. Zero new npm runtime dependencies.
-**Architecture:** Three new layers (framework integration, fast extraction, orchestration) all additive and optional. Non-breaking extension pattern.
-**Critical pitfall:** Bootstrap block only fires in strict mode — the DEFAULT (assisted) mode gets zero governance teaching from session start. This undermines the entire product value proposition.
+**Stack:** SDK client IS the platform — `client.session.*` for real session management, `client.tui.showToast()` for visual feedback, `client.find.*` for fast extraction, `client.event.subscribe()` for event-driven governance, `$` BunShell for Repomix/git integration.
+
+**Architecture:** 4-pillar design from idumb-v2 (Auto-Hooks, Session Management, Unique Agent Tools, Mems Brain) ALL powered by the SDK client layer. 14 hooks available, currently using 5 — adding `event`, `chat.message`, `command.execute.before`, `shell.env`.
+
+**Critical pitfall:** Client deadlock during init (oh-my-opencode #1301). Store client reference, never call during plugin init function. And **NEVER use permission.ask to block tools** — this is the ecosystem's learned wisdom.
 
 ## Implications for Roadmap
 
 Based on research, suggested phase structure:
 
-1. **ST11/ST12 Critical Fixes** — Fix the 2 stress test failures
-   - Addresses: Bootstrap in all modes, evidence discipline teaching, permissive mode consistency
-   - Avoids: Publishing with broken core promise (Pitfall 1, 2)
+1. **Phase 1: Governance Foundation Fix** — Fix ST12 (bootstrap in all modes) and ST11 (permissive mode signals)
+   - Addresses: GOV-01→06 from REQUIREMENTS
+   - Avoids: Pitfall #3 (bootstrap only in strict), Pitfall #4 (signal contradiction)
+   - No SDK changes needed — pure governance logic fixes
 
-2. **Framework Detector + GSD Bridge** — Auto-detect governance frameworks, read GSD state
-   - Addresses: GSD integration (the primary user-requested feature)
-   - Avoids: Framework coupling breaking standalone mode (Pitfall 3)
+2. **Phase 2: SDK Client Integration** — Destructure ALL PluginInput fields. Wire `client`, `$`, `project`, `serverUrl` into existing architecture.
+   - Addresses: Session management, TUI toasts, event subscription, BunShell availability
+   - Avoids: Pitfall #2 (init deadlock), Pitfall #5 (ignoring SDK)
+   - This is the foundation for everything else
 
-3. **Fast Extraction Tools** — Repomix wrapper, rg/fd search tools
-   - Addresses: Agent codebase awareness (user-requested)
-   - Avoids: Output exceeding context window (Pitfall 4)
+3. **Phase 3: Framework Detection & Fast Extraction** — Auto-detect GSD/Spec-kit, SDK-powered grep/glob/read/extract tools
+   - Addresses: FRM-01→06, EXT-01→09
+   - Avoids: Pitfall #10 (ignoring framework state), Pitfall #12 (raw FS when SDK has it)
+   - Depends on Phase 2 (needs client for `find.text`, `find.files`, `file.read`)
 
-4. **Orchestration Patterns** — Ralph-loop completion control
-   - Addresses: Story-based iteration tracking with acceptance gates
-   - Avoids: Infinite iteration (Pitfall 6)
+4. **Phase 4: Orchestration Control** — Ralph loop pattern with loop state persistence
+   - Addresses: ORC-01→08
+   - Avoids: Pitfall #1 (never block orchestration tools)
+   - Depends on Phase 3 (needs extraction tools for story verification)
 
-5. **Spec-kit Stub + Comprehensive Stress Test** — Interface for future spec-kit, full stress test suite
-   - Addresses: All 13 stress test requirements verifiable via automated tests
-   - Avoids: Regression on fixed issues
+5. **Phase 5: Self-Validation & Visual Governance** — IGNORED tier, dynamic argue-back, toast-based feedback
+   - Addresses: VAL-01→06
+   - Avoids: Pitfall #7 (static argue-back), Pitfall #9 (no visual feedback)
+   - Depends on Phase 2 (needs toast, message history)
 
-6. **npm Publish + CI/CD** — Package and publish to npm registry
-   - Addresses: Distribution (L6 in master plan, currently BLOCKED)
+6. **Phase 6: Stress Test Infrastructure** — Automated stress suite, 10+ compaction test, framework detection test
+   - Addresses: STR-01→05
+   - Depends on all previous phases
 
 **Phase ordering rationale:**
-- Phase 1 MUST come first — can't publish with ST12 FAIL
-- Phase 2 before 3 because framework detection is the foundation for context-aware extraction
-- Phase 3 before 4 because agents need codebase awareness before orchestration
-- Phase 5 before 6 because stress test must pass before publish
-- Phase 4 can potentially run in parallel with Phase 3
+- Phase 1 first: governance must work before adding capabilities (stress test must pass)
+- Phase 2 second: SDK client integration enables everything else (sessions, toasts, events, files)
+- Phase 3 third: extraction + framework detection build on SDK client
+- Phase 4 fourth: orchestration needs extraction tools for verification
+- Phase 5 fifth: self-validation needs toast (from Phase 2) + message history (from Phase 2)
+- Phase 6 last: stress testing validates all features
 
 **Research flags for phases:**
-- Phase 2: May need deeper research on GSD STATE.md format stability
-- Phase 3: Needs verification of Repomix --compress accuracy (tree-sitter coverage)
-- Phase 4: Needs clarity on whether Ralph-tui binary will be installed or manual-loop-only
-- Phase 5: Standard patterns, unlikely to need research
+- Phase 2: Likely needs deeper research on `event` hook SSE subscription patterns. How does event stream lifecycle work? Does it need cleanup?
+- Phase 3: Standard patterns — `client.find.*` and `client.file.*` are well-documented
+- Phase 4: Needs research on ralph-tui loop state schema and completion tracking across compactions
+- Phase 5: Standard patterns — toast + detection engine enhancement
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Brownfield. Existing stack proven with 705 tests. New additions verified (Repomix 21.8k stars). |
-| Features | HIGH | Feature gaps identified via systematic stress test of 13 requirements with code evidence. |
-| Architecture | HIGH | Extension to existing architecture. Non-breaking patterns established. |
-| Pitfalls | HIGH | Pitfalls derived from actual stress test failures (code-level evidence, not speculation). |
+| Stack | HIGH | SDK client verified from 5 real plugins. API surface documented. |
+| Features | HIGH | Derived from SDK capabilities + 8 plugin codebases + idumb-v2 concepts |
+| Architecture | HIGH | 4-pillar model maps cleanly to SDK. Patterns verified in production plugins. |
+| Pitfalls | HIGH | oh-my-opencode #1301 documented. Ecosystem-wide zero use of permission.ask confirmed. |
 
 ## Gaps to Address
 
-- **Spec-kit framework**: Does not exist yet. Can only build stub/interface. Implement when framework materializes.
-- **Ralph-tui binary**: Not installed on machine. Skills exist for manual loop pattern. Decision needed: build binary dependency or manual-only.
-- **GSD STATE.md stability**: GSD is at v1.18.0 and actively evolving. STATE.md format may change. Parser must be resilient.
-- **OpenCode Plugin SDK v2**: If OpenCode releases SDK v2, hook signatures may change. Current architecture is v1.1+ compatible.
-- **npm publish auth**: L6 in master plan is BLOCKED on npm login. Token provided by user in this conversation — should be rotated.
+- SSE event stream lifecycle management (subscribe/unsubscribe/cleanup)
+- SDK client error handling patterns (what happens when server is unreachable?)
+- Multi-project plugin behavior (does client scope to current project?)
+- `experimental.*` hooks stability — "experimental" prefix suggests API may change
+- Ralph-tui loop state schema evolution across compactions
+
+## Reference Materials
+
+All stored in `.planning/research/plugin-refs/`:
+
+| File | Source | Size | Purpose |
+|------|--------|------|---------|
+| `opencode-sdk.xml` | sst/opencode (packages/plugin + packages/sdk) | ~53 files | SDK source code reference |
+| `dynamic-context-pruning.xml` | Tarquinen/opencode-dynamic-context-pruning | 185KB | Context management patterns |
+| `micode.xml` | vtemian/micode | 351KB | Session create/prompt/delete, constraint review |
+| `oh-my-opencode.xml` | code-yeongyu/oh-my-opencode | 1.5MB | Largest plugin, 41 hooks, ralph-loop, toasts |
+| `opencode-pty.xml` | shekohex/opencode-pty | 134KB | PTY tools, SDK client typing, showToast |
+| `opencode-worktree.xml` | kdcokenny/opencode-worktree | 58KB | Event-driven (session.idle), worktree tools |
+| `opencode-zellij-namer.xml` | 24601/opencode-zellij-namer | 26KB | Anti-pattern: NOT a real plugin |
+| `plannotator.xml` | backnotprop/plannotator | 279KB | Silent injection, message history, agent detection |
+| `subtask2.xml` | spoons-and-mirrors/subtask2 | 102KB | setClient() pattern, loop state, parallel execution |
