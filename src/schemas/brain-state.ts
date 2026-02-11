@@ -36,6 +36,7 @@ export interface MetricsState {
   auto_health_score: number; // 0-100, calculated from success rate
   total_tool_calls: number;
   successful_tool_calls: number;
+  violation_count: number; // Tracks governance violations
 }
 
 export interface BrainState {
@@ -85,6 +86,7 @@ export function createBrainState(
       auto_health_score: 100,
       total_tool_calls: 0,
       successful_tool_calls: 0,
+      violation_count: 0,
     },
     sentiment_signals: [],
     complexity_nudge_shown: false,
@@ -255,3 +257,14 @@ export function resetComplexityNudge(state: BrainState): BrainState {
     complexity_nudge_shown: false,
   };
 }
+
+export function addViolationCount(state: BrainState): BrainState {
+  return {
+    ...state,
+    metrics: {
+      ...state.metrics,
+      violation_count: state.metrics.violation_count + 1,
+    },
+  };
+}
+
