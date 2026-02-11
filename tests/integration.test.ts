@@ -12,7 +12,9 @@ import { createDeclareIntentTool } from "../src/tools/declare-intent.js"
 import { createMapContextTool } from "../src/tools/map-context.js"
 import { createCompactSessionTool } from "../src/tools/compact-session.js"
 import { createCompactionHook } from "../src/hooks/compaction.js"
+import { createSessionLifecycleHook } from "../src/hooks/session-lifecycle.js"
 import { createLogger } from "../src/lib/logging.js"
+import { loadConfig } from "../src/lib/persistence.js"
 import { mkdtemp, rm } from "fs/promises"
 import { tmpdir } from "os"
 import { join } from "path"
@@ -319,6 +321,166 @@ async function test_compactionHookPreservesHierarchy() {
   }
 }
 
+// ─── Round 1 Auto-Hooks Tests ─────────────────────────────────────────
+
+async function test_staleSessionAutoArchived() {
+  process.stderr.write("\n--- integration: stale session auto-archived on lifecycle hook ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+
+    // Step 2: Declare intent to create a session
+    const declareIntentTool = createDeclareIntentTool(dir)
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Stale session test" }
+    )
+
+    // Step 3: Load state, record original session ID
+    const stateManager = createStateManager(dir)
+    let state = await stateManager.load()
+    const originalSessionId = state!.session.id
+
+    // Step 4: Modify brain state — set last_activity to 4 days ago
+    state!.session.last_activity = Date.now() - (4 * 86_400_000)
+    await stateManager.save(state!)
+
+    // Step 5: Create session lifecycle hook and call it
+    const config = await loadConfig(dir)
+    const logger = await createLogger(dir, "test")
+    const hook = createSessionLifecycleHook(logger, dir, config)
+    const output = { system: [] as string[] }
+    await hook({ sessionID: "test-session" }, output)
+
+    // Step 6: Assert: new session was created (different session ID)
+    const newState = await stateManager.load()
+    assert(newState !== null, "state exists after stale archive")
+    assert(newState!.session.id !== originalSessionId, "new session ID created after stale archive")
+
+    // Step 7: Assert: archive directory has at least 1 file
+    const archives = await listArchives(dir)
+    assert(archives.length >= 1, "archive has at least 1 file after stale archive")
+
+    // Step 8: Assert: index.md contains "[auto-archived: stale]"
+    const indexMd = await readFile(join(dir, ".hivemind", "sessions", "index.md"), "utf-8")
+    assert(indexMd.includes("[auto-archived: stale]"), "index.md contains auto-archived stale marker")
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_chainBreaksInjected() {
+  process.stderr.write("\n--- integration: chain breaks injected into system prompt ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Chain break test" }
+    )
+
+    // Step 2: Modify brain state — set action without tactic (orphaned action)
+    const stateManager = createStateManager(dir)
+    const state = await stateManager.load()
+    state!.hierarchy.action = "Write tests"
+    state!.hierarchy.tactic = "" // ensure empty — orphaned action
+    await stateManager.save(state!)
+
+    // Step 3: Create session lifecycle hook and call it
+    const config = await loadConfig(dir)
+    const logger = await createLogger(dir, "test")
+    const hook = createSessionLifecycleHook(logger, dir, config)
+    const output = { system: [] as string[] }
+    await hook({ sessionID: "test-session" }, output)
+
+    // Step 4: Assert chain break detection
+    const systemText = output.system.join("\n")
+    assert(systemText.includes("Chain breaks detected"), "output contains chain breaks warning")
+    assert(
+      systemText.includes("no parent tactic"),
+      "output mentions missing parent tactic"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_commitSuggestionAtThreshold() {
+  process.stderr.write("\n--- integration: commit suggestion appears at file threshold ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Commit advisor test" }
+    )
+
+    // Step 2: Modify brain state — add 5+ files to files_touched
+    const stateManager = createStateManager(dir)
+    const state = await stateManager.load()
+    state!.metrics.files_touched = [
+      "src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts"
+    ]
+    await stateManager.save(state!)
+
+    // Step 3: Create session lifecycle hook and call it
+    const config = await loadConfig(dir)
+    const logger = await createLogger(dir, "test")
+    const hook = createSessionLifecycleHook(logger, dir, config)
+    const output = { system: [] as string[] }
+    await hook({ sessionID: "test-session" }, output)
+
+    // Step 4: Assert commit suggestion
+    const systemText = output.system.join("\n")
+    assert(
+      systemText.includes("files touched") && systemText.includes("consider committing"),
+      "output contains commit suggestion"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_toolActivationSuggestsIntentWhenLocked() {
+  process.stderr.write("\n--- integration: tool activation suggests declare_intent when locked ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project in strict mode (session starts LOCKED)
+    await initProject(dir, { governanceMode: "strict", language: "en", silent: true })
+
+    // Step 2: Create session lifecycle hook and call it (DON'T declare intent)
+    const config = await loadConfig(dir)
+    const logger = await createLogger(dir, "test")
+    const hook = createSessionLifecycleHook(logger, dir, config)
+    const output = { system: [] as string[] }
+    await hook({ sessionID: "test-session" }, output)
+
+    // Step 3: Assert tool activation suggests declare_intent
+    const systemText = output.system.join("\n")
+    assert(systemText.includes("declare_intent"), "output suggests declare_intent tool")
+    assert(
+      systemText.includes("LOCKED"),
+      "output mentions LOCKED status"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
@@ -329,6 +491,10 @@ async function main() {
   await test_contextTransitions()
   await test_driftReset()
   await test_compactionHookPreservesHierarchy()
+  await test_staleSessionAutoArchived()
+  await test_chainBreaksInjected()
+  await test_commitSuggestionAtThreshold()
+  await test_toolActivationSuggestsIntentWhenLocked()
 
   process.stderr.write(`\n=== Integration: ${passed} passed, ${failed_} failed ===\n`)
   process.exit(failed_ > 0 ? 1 : 0)
