@@ -7,7 +7,7 @@
  * Task t7 (1.10)
  */
 
-import { initProject } from "../src/cli/init.js"
+import { initProject, injectAgentsDocs } from "../src/cli/init.js"
 import { createStateManager, loadConfig } from "../src/lib/persistence.js"
 import { createDeclareIntentTool } from "../src/tools/declare-intent.js"
 import { createMapContextTool } from "../src/tools/map-context.js"
@@ -454,6 +454,138 @@ async function test_configPersistence() {
   }
 }
 
+// ─── Test 14: AGENTS.md injection — appends HiveMind section ──────────
+
+async function test_agentsMdInjection() {
+  process.stderr.write("\n--- entry-chain: AGENTS.md injection ---\n")
+  const dir = await makeTmpDir()
+
+  try {
+    // Create existing AGENTS.md
+    writeFileSync(join(dir, "AGENTS.md"), "# My Project\n\nExisting content here.\n", "utf-8")
+
+    // Init project — should append HiveMind section
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+
+    const agentsMd = readFileSync(join(dir, "AGENTS.md"), "utf-8")
+
+    assert(
+      agentsMd.includes("Existing content here."),
+      "AGENTS.md preserves existing content"
+    )
+    assert(
+      agentsMd.includes("<!-- HIVEMIND-GOVERNANCE-START -->"),
+      "AGENTS.md contains HiveMind start marker"
+    )
+    assert(
+      agentsMd.includes("<!-- HIVEMIND-GOVERNANCE-END -->"),
+      "AGENTS.md contains HiveMind end marker"
+    )
+    assert(
+      agentsMd.includes("declare_intent") && agentsMd.includes("map_context") && agentsMd.includes("compact_session"),
+      "AGENTS.md contains core tool names"
+    )
+    assert(
+      agentsMd.includes("Available Tools (14)"),
+      "AGENTS.md contains tool count"
+    )
+  } finally {
+    await cleanTmpDir(dir)
+  }
+}
+
+// ─── Test 15: AGENTS.md injection is idempotent ───────────────────────
+
+async function test_agentsMdIdempotent() {
+  process.stderr.write("\n--- entry-chain: AGENTS.md injection is idempotent ---\n")
+  const dir = await makeTmpDir()
+
+  try {
+    // Create AGENTS.md with HiveMind section already present
+    writeFileSync(join(dir, "AGENTS.md"),
+      "# My Project\n\n<!-- HIVEMIND-GOVERNANCE-START -->\nOld content\n<!-- HIVEMIND-GOVERNANCE-END -->\n\nAfter section.\n",
+      "utf-8"
+    )
+
+    // Call injectAgentsDocs directly
+    injectAgentsDocs(dir, true)
+
+    const agentsMd = readFileSync(join(dir, "AGENTS.md"), "utf-8")
+
+    // Should NOT have duplicate markers
+    const startMarkerCount = (agentsMd.match(/HIVEMIND-GOVERNANCE-START/g) || []).length
+    assert(
+      startMarkerCount === 1,
+      "AGENTS.md has exactly 1 start marker (idempotent)"
+    )
+    assert(
+      agentsMd.includes("declare_intent"),
+      "AGENTS.md section was updated with current content"
+    )
+    assert(
+      !agentsMd.includes("Old content"),
+      "AGENTS.md old section content was replaced"
+    )
+    assert(
+      agentsMd.includes("After section."),
+      "AGENTS.md content after section is preserved"
+    )
+  } finally {
+    await cleanTmpDir(dir)
+  }
+}
+
+// ─── Test 16: CLAUDE.md also gets injection ───────────────────────────
+
+async function test_claudeMdInjection() {
+  process.stderr.write("\n--- entry-chain: CLAUDE.md also gets injection ---\n")
+  const dir = await makeTmpDir()
+
+  try {
+    // Create both AGENTS.md and CLAUDE.md
+    writeFileSync(join(dir, "AGENTS.md"), "# Agents\n", "utf-8")
+    writeFileSync(join(dir, "CLAUDE.md"), "# Claude Config\n", "utf-8")
+
+    // Init project
+    await initProject(dir, { governanceMode: "strict", language: "en", silent: true })
+
+    const claudeMd = readFileSync(join(dir, "CLAUDE.md"), "utf-8")
+    assert(
+      claudeMd.includes("<!-- HIVEMIND-GOVERNANCE-START -->"),
+      "CLAUDE.md also receives HiveMind section"
+    )
+    assert(
+      claudeMd.includes("declare_intent"),
+      "CLAUDE.md contains core tool names"
+    )
+  } finally {
+    await cleanTmpDir(dir)
+  }
+}
+
+// ─── Test 17: no AGENTS.md — no file created ─────────────────────────
+
+async function test_noAgentsMdNoCreation() {
+  process.stderr.write("\n--- entry-chain: no AGENTS.md present → no file created ---\n")
+  const dir = await makeTmpDir()
+
+  try {
+    // Init project WITHOUT any AGENTS.md or CLAUDE.md
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+
+    assert(
+      !existsSync(join(dir, "AGENTS.md")),
+      "AGENTS.md NOT created when it didn't exist before init"
+    )
+    assert(
+      !existsSync(join(dir, "CLAUDE.md")),
+      "CLAUDE.md NOT created when it didn't exist before init"
+    )
+  } finally {
+    await cleanTmpDir(dir)
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
@@ -466,6 +598,10 @@ async function main() {
   await test_jsoncConfigPreservation()
   await test_reInitGuard()
   await test_configPersistence()
+  await test_agentsMdInjection()
+  await test_agentsMdIdempotent()
+  await test_claudeMdInjection()
+  await test_noAgentsMdNoCreation()
 
   process.stderr.write(`\n=== Entry Chain: ${passed} passed, ${failed_} failed ===\n`)
   process.exit(failed_ > 0 ? 1 : 0)

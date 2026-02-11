@@ -1,10 +1,9 @@
 # HiveMind Master Plan — Living Document
 
 **Created:** 2026-02-12
-**Last Updated:** 2026-02-12 (Iteration 3 COMPLETE)
-**Status:** ACTIVE — Iteration 3 complete, 10/14 logic failures fixed
-**Branch:** `master` (merged from `feature/hierarchy-redesign` at `e6ac742`)
-**HEAD:** `e6ac742` — pushed to GitHub
+**Last Updated:** 2026-02-12 (Iteration 4 COMPLETE)
+**Status:** ACTIVE — Iteration 4 complete, L7 behavioral activation solved
+**Branch:** `master`
 
 **Source of truth references:**
 - Architecture: `docs/plans/2026-02-11-hierarchy-redesign.md` (651 lines)
@@ -94,7 +93,7 @@ Even with perfect tools, they need activation WITHOUT agent cooperation:
 | Planning FS rewrite (templates, manifest, per-session, FileGuard tracking) | `src/lib/planning-fs.ts` | ~719 | 30 |
 | Brain state schema (extended metrics + detection counters) | `src/schemas/brain-state.ts` | ~297 | 35 |
 | Hierarchy tools (prune + migrate) | `src/tools/hierarchy.ts` | — | — |
-| Core tools wired to tree | `declare-intent.ts`, `map-context.ts`, `compact-session.ts` | — | 74 |
+| Core tools wired to tree | `declare-intent.ts`, `map-context.ts`, `compact-session.ts` | — | 84 |
 | Cognitive mesh wired to tree | `scan-hierarchy.ts`, `think-back.ts` | — | 32 |
 | Counter engine wired | `src/hooks/soft-governance.ts` | ~200 | 27 |
 | Prompt engine wired | `src/hooks/session-lifecycle.ts` | ~250 | — |
@@ -105,8 +104,8 @@ Even with perfect tools, they need activation WITHOUT agent cooperation:
 | Ecosystem verification utility | `bin/hivemind-tools.cjs` | ~1340 | — |
 | export_cycle tool + auto-capture hook | `src/tools/export-cycle.ts`, `src/hooks/soft-governance.ts` | ~130 | 36 |
 | Per-session stamp files + manifest | `planning-fs.ts` + `declare-intent.ts` | — | — |
-| Entry chain tests (JSONC, re-init, config) | `tests/entry-chain.test.ts` | — | 56 |
-| **TOTAL** | **43 source files** | — | **621 assertions** |
+| Entry chain tests (JSONC, re-init, config, AGENTS.md) | `tests/entry-chain.test.ts` | — | 69 |
+| **TOTAL** | **43 source files** | — | **644 assertions** |
 
 ### Iteration 1 Gaps — RESOLVED in code (verified 2026-02-12)
 
@@ -132,13 +131,13 @@ Even with perfect tools, they need activation WITHOUT agent cooperation:
 | L4 | **Skills NOT in npm package** | CRITICAL | ✅ FIXED — `skills/` added to `package.json` files array | CONCEPT |
 | L5 | **CLI `--help` runs init** | HIGH | ✅ FIXED — early return on `--help`/`-h` in `src/cli.ts` | TOOL |
 | L6 | **npm is at 1.3.0** — 7 versions behind | CRITICAL | BLOCKED — requires user `npm login` | PATH INTEGRITY |
-| L7 | **Never tested in real OpenCode** | CRITICAL | DEFERRED — planned for Iteration 4 | MECHANISM |
+| L7 | **Never tested in real OpenCode** | CRITICAL | SOLVED — behavioral bootstrap + AGENTS.md injection (Iteration 4) | MECHANISM |
 | L8 | **Hooks use frozen config** | HIGH | ✅ FIXED — all 3 hooks call `loadConfig(directory)` per invocation | MECHANISM |
 | L9 | **Duplicated gate logic ~120 lines** | MEDIUM | ✅ FIXED — `createToolGateHookInternal` now delegates to `.internal` | TOOL |
 | L10 | **Dead `sentiment_signals` field** | LOW | ✅ FIXED — removed from schema, migration deletes from disk | CLEAN |
 | L11 | **`src/index.ts` says "11 tools"** | LOW | ✅ FIXED — changed to 14 | PATH INTEGRITY |
 | L12 | **Stale `tasks/prd-production-ready.md`** | LOW | ✅ FIXED — deleted, `tasks/` dir removed | CLEAN |
-| L13 | **Skills not code-wired** | HIGH | NOT FIXED — deferred to Iteration 4 | MECHANISM |
+| L13 | **Skills not code-wired** | HIGH | PARTIALLY SOLVED — bootstrap is prompt-injected via hook (L7), AGENTS.md carries full skill content | MECHANISM |
 | L14 | **No bilingual docs (EN/VI)** | MEDIUM | ✅ FIXED — README has `## Tiếng Việt` section | PRESENTATION |
 
 ### Dead Schema Fields (remaining)
@@ -471,7 +470,7 @@ hivemind-plugin/
 │       └── SKILL.md                      # Decision flowchart, auto-capture, subagent prompt engineering
 ```
 
-**43 source files. 5 skill files. 17 test files. 621 assertions. 0 orphans.**
+**43 source files. 5 skill files. 17 test files. 644 assertions. 0 orphans.**
 
 ---
 
@@ -529,7 +528,8 @@ hivemind-plugin/
 | 1 | 2026-02-11 | Sophisticated tools-in-tools + activation wiring + `export_cycle` tool + auto-capture hook | **COMPLETE.** 12/12 sub-tasks done. export_cycle tool, auto-capture hook, pending_failure_ack, map_context blocked clears ack. | 607 |
 | 2 | 2026-02-12 | Entry testing + foundation hardening — edge cases, docs accuracy, file tree reality | **COMPLETE.** Master plan file tree fixed (16 lib files listed), +14 entry test assertions (JSONC, re-init guard, config persistence). Commit `f1e6989`. | 621 |
 | 3 | 2026-02-12 | Production integrity — fix logic failures L1-L14 | **COMPLETE.** 10/14 fixed (L1-5, L8-12, L14). L6 blocked (npm login), L7+L13 deferred to Iteration 4. Hooks read config from disk (Rule 6). Tool-gate deduped. Dead code removed. README bilingual. CHANGELOG complete. | 621 |
-| 4+ | PENDING | Stress test readiness, real OpenCode verification (L7), skills wiring (L13), npm publish (L6) | — | — |
+| 4 | 2026-02-12 | Agent behavioral activation (L7) — zero-cooperation bootstrap | **COMPLETE.** Behavioral bootstrap in system prompt (teaches agent HiveMind on first 2 LOCKED turns, budget expanded to 4000 chars). AGENTS.md/CLAUDE.md auto-injection during `hivemind init` (idempotent, marker-based). L7 solved, L13 partially solved. +23 assertions. | 644 |
+| 5+ | PENDING | Real OpenCode validation test, npm publish (L6), stress testing | — | — |
 
 ---
 

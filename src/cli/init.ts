@@ -22,6 +22,109 @@ import { createBrainState, generateSessionId } from "../schemas/brain-state.js"
 import { createStateManager, saveConfig } from "../lib/persistence.js"
 import { initializePlanningDirectory } from "../lib/planning-fs.js"
 
+// ── HiveMind Section for AGENTS.md / CLAUDE.md ──────────────────────────
+
+const HIVEMIND_SECTION_MARKER = "<!-- HIVEMIND-GOVERNANCE-START -->"
+const HIVEMIND_SECTION_END_MARKER = "<!-- HIVEMIND-GOVERNANCE-END -->"
+
+/**
+ * Generates the HiveMind section to append to AGENTS.md or CLAUDE.md.
+ * This survives model changes, compaction, and chaos — any AI agent reads AGENTS.md.
+ */
+function generateHiveMindAgentsSection(): string {
+  return `
+${HIVEMIND_SECTION_MARKER}
+
+## HiveMind Context Governance
+
+This project uses **HiveMind** for AI session management. It prevents drift, tracks decisions, and preserves memory across sessions.
+
+### Required Workflow
+
+1. **START** every session with:
+   \`\`\`
+   declare_intent({ mode: "plan_driven" | "quick_fix" | "exploration", focus: "What you're working on" })
+   \`\`\`
+2. **UPDATE** when switching focus:
+   \`\`\`
+   map_context({ level: "trajectory" | "tactic" | "action", content: "New focus" })
+   \`\`\`
+3. **END** when done:
+   \`\`\`
+   compact_session({ summary: "What was accomplished" })
+   \`\`\`
+
+### Available Tools (14)
+
+| Group | Tools |
+|-------|-------|
+| Core | \`declare_intent\`, \`map_context\`, \`compact_session\` |
+| Self-Awareness | \`self_rate\` |
+| Cognitive Mesh | \`scan_hierarchy\`, \`save_anchor\`, \`think_back\`, \`check_drift\` |
+| Memory | \`save_mem\`, \`list_shelves\`, \`recall_mems\` |
+| Hierarchy | \`hierarchy_prune\`, \`hierarchy_migrate\` |
+| Delegation | \`export_cycle\` |
+
+### Why It Matters
+
+- **Without \`declare_intent\`**: Drift detection is OFF, work is untracked
+- **Without \`map_context\`**: Context degrades every turn, warnings pile up
+- **Without \`compact_session\`**: Intelligence lost on session end
+- **\`save_mem\` + \`recall_mems\`**: Persistent memory across sessions — decisions survive
+
+### State Files
+
+- \`.hivemind/brain.json\` — Machine state (do not edit manually)
+- \`.hivemind/hierarchy.json\` — Decision tree
+- \`.hivemind/sessions/\` — Session files and archives
+
+${HIVEMIND_SECTION_END_MARKER}
+`
+}
+
+/**
+ * Inject HiveMind section into AGENTS.md and/or CLAUDE.md.
+ * - Creates the file if it doesn't exist
+ * - Appends section if not already present
+ * - Updates section if already present (idempotent)
+ */
+export function injectAgentsDocs(directory: string, silent: boolean): void {
+  const targetFiles = ["AGENTS.md", "CLAUDE.md"]
+
+  for (const filename of targetFiles) {
+    const filePath = join(directory, filename)
+    const section = generateHiveMindAgentsSection()
+
+    if (existsSync(filePath)) {
+      const existing = readFileSync(filePath, "utf-8")
+
+      // Already has HiveMind section — update it (idempotent)
+      if (existing.includes(HIVEMIND_SECTION_MARKER)) {
+        const startIdx = existing.indexOf(HIVEMIND_SECTION_MARKER)
+        const endIdx = existing.indexOf(HIVEMIND_SECTION_END_MARKER)
+        if (endIdx > startIdx) {
+          const updated = existing.substring(0, startIdx) +
+            section.trim() + "\n" +
+            existing.substring(endIdx + HIVEMIND_SECTION_END_MARKER.length)
+          writeFileSync(filePath, updated, "utf-8")
+          if (!silent) {
+            log(`  ✓ Updated HiveMind section in ${filename}`)
+          }
+        }
+        continue
+      }
+
+      // Append section to existing file
+      const updated = existing.trimEnd() + "\n" + section
+      writeFileSync(filePath, updated, "utf-8")
+      if (!silent) {
+        log(`  ✓ Appended HiveMind section to ${filename}`)
+      }
+    }
+    // Do NOT create the file if it doesn't exist — only inject into existing files
+  }
+}
+
 export interface InitOptions {
   language?: Language
   governanceMode?: GovernanceMode
@@ -215,6 +318,9 @@ export async function initProject(
 
   // Auto-register plugin in opencode.json
   registerPluginInConfig(directory, options.silent ?? false)
+
+  // Auto-inject HiveMind section into AGENTS.md / CLAUDE.md
+  injectAgentsDocs(directory, options.silent ?? false)
 
   if (!options.silent) {
     log("")

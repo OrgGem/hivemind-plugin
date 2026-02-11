@@ -1206,6 +1206,163 @@ async function test_fullMemsBrainWorkflow() {
   }
 }
 
+// ─── Round 5 Integration Tests — L7 Behavioral Bootstrap ─────────────
+
+async function test_bootstrapBlockAppearsWhenLocked() {
+  process.stderr.write("\n--- round5: bootstrap block appears in system prompt when LOCKED ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project in strict mode (session starts LOCKED)
+    await initProject(dir, { governanceMode: "strict", language: "en", silent: true })
+
+    // Step 2: Create session lifecycle hook and call it (DON'T declare intent)
+    const config = await loadConfig(dir)
+    const logger = await createLogger(dir, "test")
+    const hook = createSessionLifecycleHook(logger, dir, config)
+    const output = { system: [] as string[] }
+    await hook({ sessionID: "test-session" }, output)
+
+    // Step 3: Assert bootstrap block appears
+    const systemText = output.system.join("\n")
+    assert(
+      systemText.includes("<hivemind-bootstrap>") && systemText.includes("</hivemind-bootstrap>"),
+      "bootstrap block appears with XML tags when LOCKED"
+    )
+    assert(
+      systemText.includes("declare_intent") && systemText.includes("map_context") && systemText.includes("compact_session"),
+      "bootstrap block contains all 3 core tool names"
+    )
+    assert(
+      systemText.includes("Required Workflow"),
+      "bootstrap block contains workflow instructions"
+    )
+    assert(
+      systemText.includes("Available Tools") || systemText.includes("Key Tools"),
+      "bootstrap block contains tool listing"
+    )
+    assert(
+      systemText.includes("MUST call") || systemText.includes("The session is LOCKED"),
+      "bootstrap block contains LOCKED warning for strict mode"
+    )
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_bootstrapBlockDisappearsWhenOpen() {
+  process.stderr.write("\n--- round5: bootstrap block disappears after declare_intent ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent (session becomes OPEN)
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Bootstrap disappear test" }
+    )
+
+    // Step 2: Create session lifecycle hook and call it
+    const config = await loadConfig(dir)
+    const logger = await createLogger(dir, "test")
+    const hook = createSessionLifecycleHook(logger, dir, config)
+    const output = { system: [] as string[] }
+    await hook({ sessionID: "test-session" }, output)
+
+    // Step 3: Assert bootstrap block is NOT present
+    const systemText = output.system.join("\n")
+    assert(
+      !systemText.includes("<hivemind-bootstrap>"),
+      "bootstrap block does NOT appear when session is OPEN"
+    )
+    // But regular <hivemind> should still be there
+    assert(
+      systemText.includes("<hivemind>") && systemText.includes("</hivemind>"),
+      "regular hivemind block still present when OPEN"
+    )
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_bootstrapBlockDisappearsAfterTurnCount() {
+  process.stderr.write("\n--- round5: bootstrap block disappears after turn_count > 2 ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project in strict mode (stays LOCKED)
+    await initProject(dir, { governanceMode: "strict", language: "en", silent: true })
+
+    // Step 2: Simulate turn_count > 2 while still LOCKED
+    const stateManager = createStateManager(dir)
+    const state = await stateManager.load()
+    if (state) {
+      state.metrics.turn_count = 3
+      await stateManager.save(state)
+    }
+
+    // Step 3: Create session lifecycle hook and call it
+    const config = await loadConfig(dir)
+    const logger = await createLogger(dir, "test")
+    const hook = createSessionLifecycleHook(logger, dir, config)
+    const output = { system: [] as string[] }
+    await hook({ sessionID: "test-session" }, output)
+
+    // Step 4: Assert bootstrap block is NOT present (turn_count > 2)
+    const systemText = output.system.join("\n")
+    assert(
+      !systemText.includes("<hivemind-bootstrap>"),
+      "bootstrap block does NOT appear when turn_count > 2 (even if LOCKED)"
+    )
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_bootstrapBlockAssistedMode() {
+  process.stderr.write("\n--- round5: bootstrap block in assisted mode ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project in assisted mode
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+
+    // Step 2: Verify session is LOCKED initially (default for new sessions)
+    const stateManager = createStateManager(dir)
+    const state = await stateManager.load()
+    // assisted mode starts OPEN, so we need to manually set to LOCKED for this test
+    if (state) {
+      state.session.governance_status = "LOCKED"
+      state.metrics.turn_count = 0
+      await stateManager.save(state)
+    }
+
+    // Step 3: Create session lifecycle hook and call it
+    const config = await loadConfig(dir)
+    const logger = await createLogger(dir, "test")
+    const hook = createSessionLifecycleHook(logger, dir, config)
+    const output = { system: [] as string[] }
+    await hook({ sessionID: "test-session" }, output)
+
+    // Step 4: Assert bootstrap block present and uses assisted wording
+    const systemText = output.system.join("\n")
+    assert(
+      systemText.includes("<hivemind-bootstrap>"),
+      "bootstrap block appears in assisted mode when LOCKED"
+    )
+    assert(
+      systemText.includes("full tracking"),
+      "bootstrap block uses softer wording for assisted mode"
+    )
+  } finally {
+    await cleanup()
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1236,6 +1393,10 @@ async function main() {
   await test_autoMemOnCompaction()
   await test_systemPromptUsesHivemindTag()
   await test_fullMemsBrainWorkflow()
+  await test_bootstrapBlockAppearsWhenLocked()
+  await test_bootstrapBlockDisappearsWhenOpen()
+  await test_bootstrapBlockDisappearsAfterTurnCount()
+  await test_bootstrapBlockAssistedMode()
 
   process.stderr.write(`\n=== Integration: ${passed} passed, ${failed_} failed ===\n`)
   process.exit(failed_ > 0 ? 1 : 0)

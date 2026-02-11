@@ -53,14 +53,64 @@ import {
 } from "../lib/hierarchy-tree.js"
 
 /**
+ * Generates the behavioral bootstrap block injected when session is LOCKED.
+ * This is the ZERO-cooperation activation path — teaches the agent what
+ * HiveMind is and how to use it without requiring AGENTS.md reading,
+ * skill loading, or any protocol. Pure prompt injection.
+ *
+ * Only shown when: governance_status === "LOCKED" AND turn_count <= 2
+ * Budget: ~1100 chars (fits within expanded 4000-char budget)
+ */
+function generateBootstrapBlock(governanceMode: string): string {
+  const lines: string[] = []
+  lines.push("<hivemind-bootstrap>")
+  lines.push("## HiveMind Context Governance — Active")
+  lines.push("")
+  lines.push("This project uses HiveMind for AI session management. You have 14 tools available.")
+  lines.push("")
+  lines.push("### Required Workflow")
+  lines.push('1. **START**: Call `declare_intent({ mode, focus })` before any work')
+  lines.push('   - mode: "plan_driven" | "quick_fix" | "exploration"')
+  lines.push("   - focus: 1-sentence description of your goal")
+  lines.push('2. **DURING**: Call `map_context({ level, content })` when switching focus')
+  lines.push('   - level: "trajectory" | "tactic" | "action"')
+  lines.push("   - Resets drift tracking, keeps session healthy")
+  lines.push('3. **END**: Call `compact_session({ summary })` when done')
+  lines.push("   - Archives session, preserves memory across sessions")
+  lines.push("")
+  lines.push("### Key Tools")
+  lines.push("- `scan_hierarchy` — See your decision tree")
+  lines.push("- `think_back` — Refresh context after compaction")
+  lines.push("- `save_mem` / `recall_mems` — Persistent cross-session memory")
+  lines.push("- `check_drift` — Am I still on track?")
+  lines.push("- `save_anchor` — Immutable facts that survive chaos")
+  lines.push("- `export_cycle` — Capture subagent results into hierarchy + memory")
+  lines.push("")
+  lines.push("### Why This Matters")
+  lines.push("Without `declare_intent`, drift detection is OFF and your work is untracked.")
+  lines.push("Without `map_context`, context degrades every turn.")
+  lines.push("Without `compact_session`, intelligence is lost on session end.")
+  lines.push("")
+  if (governanceMode === "strict") {
+    lines.push("**The session is LOCKED. You MUST call `declare_intent` before writing any files.**")
+  } else {
+    lines.push("**The session is LOCKED. Call `declare_intent` to start working with full tracking.**")
+  }
+  lines.push("</hivemind-bootstrap>")
+  return lines.join("\n")
+}
+
+/**
  * Creates the session lifecycle hook (system prompt transform).
  *
  * Injects current session context into the system prompt:
  *   - Hierarchy state (trajectory/tactic/action)
  *   - Governance status (LOCKED/OPEN)
  *   - Session metrics (drift score, turn count)
+ *   - Behavioral bootstrap (when LOCKED, first 2 turns)
  *
- * Budget: ≤2500 chars. Sections assembled by priority, lowest dropped if over budget. ADD, not REPLACE.
+ * Budget: ≤2500 chars normally, ≤4000 chars when bootstrap active.
+ * Sections assembled by priority, lowest dropped if over budget. ADD, not REPLACE.
  */
 export function createSessionLifecycleHook(
   log: Logger,
@@ -284,9 +334,19 @@ export function createSessionLifecycleHook(
       const agentConfigPrompt = generateAgentBehaviorPrompt(config.agent_behavior)
       configLines.push(agentConfigPrompt)
 
+      // BEHAVIORAL BOOTSTRAP — inject teaching block when session is LOCKED
+      // This is the ZERO-cooperation activation path (L7 fix)
+      const bootstrapLines: string[] = []
+      const isBootstrapActive = state.session.governance_status === "LOCKED" && state.metrics.turn_count <= 2
+      if (isBootstrapActive) {
+        bootstrapLines.push(generateBootstrapBlock(config.governance_mode))
+      }
+
       // Assemble by priority — drop lowest priority sections if over budget
-      const BUDGET_CHARS = 2500
+      // Budget expands to 4000 when bootstrap is active (first turns need teaching)
+      const BUDGET_CHARS = isBootstrapActive ? 4000 : 2500
       const sections = [
+        bootstrapLines, // P0: behavioral bootstrap (only when LOCKED, first 2 turns)
         statusLines,    // P1: always
         hierarchyLines, // P2: always
         warningLines,   // P3: if present
