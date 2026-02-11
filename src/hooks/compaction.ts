@@ -48,6 +48,13 @@ export function createCompactionHook(log: Logger, directory: string) {
         return
       }
 
+      // Check for purification report from last compact_session
+      if (state.next_compaction_report) {
+        output.context.push(state.next_compaction_report);
+        await log.debug(`Compaction: injected purification report (${state.next_compaction_report.length} chars)`);
+        // Don't return — still add standard context too, but purification report comes first
+      }
+
       const lines: string[] = []
       lines.push("=== HiveMind Context (post-compaction) ===")
       lines.push("")

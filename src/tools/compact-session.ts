@@ -41,9 +41,206 @@ import {
   toAsciiTree,
   getTreeStats,
   treeExists,
+  detectGaps,
+  getAncestors,
+  flattenTree,
+  findNode,
+  countCompleted,
+  pruneCompleted,
 } from "../lib/hierarchy-tree.js"
+import type { HierarchyTree } from "../lib/hierarchy-tree.js"
+import type { BrainState, MetricsState } from "../schemas/brain-state.js"
 import { mkdir, writeFile } from "fs/promises"
 import { join } from "path"
+
+// ============================================================
+// Purification Scripts — pure, deterministic, model-agnostic
+// These run INSIDE compact_session, NOT via agent cooperation.
+// ============================================================
+
+/** A turning point identified during session purification */
+export interface TurningPoint {
+  nodeId: string;
+  stamp: string;
+  level: string;
+  content: string;
+  type: 'completed' | 'stale_gap' | 'cursor_path';
+  detail: string;
+}
+
+/**
+ * Identify turning points in the hierarchy tree.
+ * Pure, deterministic, model-agnostic — runs programmatically.
+ *
+ * Scans for:
+ * 1. Cursor ancestry chain → type 'cursor_path'
+ * 2. Completed nodes with timestamp → type 'completed'
+ * 3. Stale gaps (from detectGaps) → type 'stale_gap'
+ *
+ * Returns sorted: cursor_path first, then completed, then stale_gap.
+ *
+ * @consumer compact_session execute()
+ */
+export function identifyTurningPoints(
+  tree: HierarchyTree,
+  _metrics: MetricsState
+): TurningPoint[] {
+  const turningPoints: TurningPoint[] = [];
+  if (!tree.root) return turningPoints;
+
+  // 1. Cursor ancestry chain → type 'cursor_path'
+  if (tree.cursor) {
+    const ancestors = getAncestors(tree.root, tree.cursor);
+    for (const node of ancestors) {
+      turningPoints.push({
+        nodeId: node.id,
+        stamp: node.stamp,
+        level: node.level,
+        content: node.content,
+        type: 'cursor_path',
+        detail: `Cursor ancestry: ${node.level} node`,
+      });
+    }
+  }
+
+  // 2. Completed nodes with timestamp → type 'completed'
+  const allNodes = flattenTree(tree.root);
+  for (const node of allNodes) {
+    if (node.status === 'complete' && node.completed) {
+      turningPoints.push({
+        nodeId: node.id,
+        stamp: node.stamp,
+        level: node.level,
+        content: node.content,
+        type: 'completed',
+        detail: `Completed at ${new Date(node.completed).toISOString()}`,
+      });
+    }
+  }
+
+  // 3. Stale gaps → type 'stale_gap'
+  const gaps = detectGaps(tree);
+  for (const gap of gaps) {
+    if (gap.severity === 'stale') {
+      turningPoints.push({
+        nodeId: '',
+        stamp: gap.from,
+        level: '',
+        content: `Gap: ${gap.from} → ${gap.to}`,
+        type: 'stale_gap',
+        detail: `${gap.relationship} gap of ${Math.round(gap.gapMs / 60000)}min (stale)`,
+      });
+    }
+  }
+
+  // Sort: cursor_path first, then completed, then stale_gap
+  const typePriority: Record<string, number> = {
+    cursor_path: 0,
+    completed: 1,
+    stale_gap: 2,
+  };
+  turningPoints.sort((a, b) => typePriority[a.type] - typePriority[b.type]);
+
+  return turningPoints;
+}
+
+/**
+ * Generate the next compaction report that the compaction hook will read.
+ * Pure, deterministic, model-agnostic — budget-capped at 1800 chars.
+ *
+ * Structure:
+ * - Active Work (non-completed nodes)
+ * - Cursor Path (ancestry chain)
+ * - Key Turning Points (completed items, stale gaps)
+ * - Files Touched
+ * - Resume Instructions
+ *
+ * @consumer compact_session execute()
+ */
+export function generateNextCompactionReport(
+  tree: HierarchyTree,
+  turningPoints: TurningPoint[],
+  state: BrainState
+): string {
+  const BUDGET = 1800;
+  const lines: string[] = [];
+
+  lines.push('=== HiveMind Purification Report ===');
+  lines.push(`Session: ${state.session.id} | Compaction #${(state.compaction_count ?? 0) + 1}`);
+  lines.push('');
+
+  // Active work
+  lines.push('## Active Work (what to continue)');
+  if (tree.root) {
+    const allNodes = flattenTree(tree.root);
+    const activeNodes = allNodes.filter(n => n.status !== 'complete');
+    for (const node of activeNodes.slice(0, 10)) {
+      lines.push(`- [${node.level}] ${node.content} (${node.stamp})`);
+    }
+    if (activeNodes.length > 10) {
+      lines.push(`  ... and ${activeNodes.length - 10} more`);
+    }
+  } else {
+    lines.push('- (no active work)');
+  }
+  lines.push('');
+
+  // Cursor path
+  lines.push('## Cursor Path (where you were)');
+  const cursorPoints = turningPoints.filter(tp => tp.type === 'cursor_path');
+  if (cursorPoints.length > 0) {
+    lines.push(cursorPoints.map(tp => `${tp.level}: ${tp.content} (${tp.stamp})`).join(' > '));
+  } else {
+    lines.push('- (no cursor set)');
+  }
+  lines.push('');
+
+  // Key turning points
+  lines.push('## Key Turning Points');
+  const keyPoints = turningPoints.filter(tp => tp.type !== 'cursor_path');
+  if (keyPoints.length > 0) {
+    for (const tp of keyPoints.slice(0, 8)) {
+      lines.push(`- [${tp.type}] ${tp.content}: ${tp.detail}`);
+    }
+  } else {
+    lines.push('- (none)');
+  }
+  lines.push('');
+
+  // Files touched
+  lines.push('## Files Touched');
+  if (state.metrics.files_touched.length > 0) {
+    for (const f of state.metrics.files_touched.slice(0, 10)) {
+      lines.push(`- ${f}`);
+    }
+    if (state.metrics.files_touched.length > 10) {
+      lines.push(`  ... and ${state.metrics.files_touched.length - 10} more`);
+    }
+  } else {
+    lines.push('- (none)');
+  }
+  lines.push('');
+
+  // Resume instructions
+  lines.push('## Resume Instructions');
+  const cursorNode = tree.root && tree.cursor ? findNode(tree.root, tree.cursor) : null;
+  if (cursorNode) {
+    lines.push(`- You were working on: ${cursorNode.content}`);
+  } else {
+    lines.push('- You were working on: (no active cursor)');
+  }
+  lines.push('- Next step: Continue from the cursor position shown above');
+  lines.push('=== End Purification Report ===');
+
+  let report = lines.join('\n');
+
+  // Budget enforcement
+  if (report.length > BUDGET) {
+    report = report.slice(0, BUDGET - 35) + '\n=== End Purification Report ===';
+  }
+
+  return report;
+}
 
 export function createCompactSessionTool(directory: string): ToolDefinition {
   return tool({
@@ -69,6 +266,10 @@ export function createCompactSessionTool(directory: string): ToolDefinition {
       // Read current active.md content for archival
       const activeMd = await readActiveMd(directory)
 
+      // Load tree ONCE — reused for archive content + purification
+      const hasTree = treeExists(directory)
+      const tree = hasTree ? await loadTree(directory) : createTree()
+
       // === Build archive content including tree ===
       const archiveLines = [
         `# Archived Session: ${state.session.id}`,
@@ -85,8 +286,7 @@ export function createCompactSessionTool(directory: string): ToolDefinition {
       ]
 
       // Include tree view if available
-      if (treeExists(directory)) {
-        const tree = await loadTree(directory)
+      if (hasTree && tree.root) {
         const stats = getTreeStats(tree)
         archiveLines.push(`Tree (${stats.totalNodes} nodes):`)
         archiveLines.push("```")
@@ -159,8 +359,24 @@ export function createCompactSessionTool(directory: string): ToolDefinition {
         // Auto-mem failure is non-fatal
       }
 
+      // === Purification scripts ===
+      // Step 1: Identify turning points from tree
+      const turningPoints = identifyTurningPoints(tree, state.metrics)
+
+      // Step 2: Generate next-compaction report
+      const purificationReport = generateNextCompactionReport(tree, turningPoints, state)
+
+      // Step 3: Auto-prune if too many completed branches
+      let prunedCount = 0
+      if (hasTree && countCompleted(tree) >= 5) {
+        const pruneResult = pruneCompleted(tree)
+        prunedCount = pruneResult.pruned
+        // Save the pruned tree before reset (archive already captured original)
+        await saveTree(directory, pruneResult.tree)
+      }
+
       // === Reset hierarchy tree ===
-      if (treeExists(directory)) {
+      if (hasTree) {
         await saveTree(directory, createTree())
       }
 
@@ -172,16 +388,19 @@ export function createCompactSessionTool(directory: string): ToolDefinition {
       const compactionTime = Date.now();
 
       // Create fresh brain state (new session, locked)
+      // Step 4: Write purification report to new brain state BEFORE save
       const newSessionId = generateSessionId()
       const newState = createBrainState(newSessionId, config)
       newState.compaction_count = compactionCount;
       newState.last_compaction_time = compactionTime;
+      newState.next_compaction_report = purificationReport;
       await stateManager.save(lockSession(newState))
 
       // Count archives for output
       const archives = await listArchives(directory)
 
-      return `Archived. ${state.metrics.turn_count} turns, ${state.metrics.files_touched.length} files saved. ${archives.length} total archives. Session reset.\n→ Session is now LOCKED. Call declare_intent to start new work.`
+      const purificationSummary = `Purified: ${turningPoints.length} turning points${prunedCount > 0 ? `, ${prunedCount} completed pruned` : ''}.`
+      return `Archived. ${state.metrics.turn_count} turns, ${state.metrics.files_touched.length} files saved. ${archives.length} total archives. Session reset.\n${purificationSummary}\n→ Session is now LOCKED. Call declare_intent to start new work.`
     },
   })
 }
