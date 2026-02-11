@@ -39,6 +39,8 @@ import {
   createSaveMemTool,
   createListShelvesTool,
   createRecallMemsTool,
+  createHierarchyPruneTool,
+  createHierarchyMigrateTool,
 } from "./tools/index.js"
 import {
   createSessionLifecycleHook,
@@ -89,6 +91,8 @@ export const HiveMindPlugin: Plugin = async ({
       save_mem: createSaveMemTool(effectiveDir),
       list_shelves: createListShelvesTool(effectiveDir),
       recall_mems: createRecallMemsTool(effectiveDir),
+      hierarchy_prune: createHierarchyPruneTool(effectiveDir),
+      hierarchy_migrate: createHierarchyMigrateTool(effectiveDir),
     },
 
     /**

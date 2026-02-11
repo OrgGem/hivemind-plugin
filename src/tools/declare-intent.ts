@@ -9,6 +9,12 @@
  *   3. Signal-to-Noise — 1-line output
  *   4. No-Shadowing — description matches agent intent
  *   5. Native Parallelism — idempotent, safe to call repeatedly
+ *
+ * Hierarchy Redesign Changes:
+ *   - Creates root node in hierarchy tree (hierarchy.json)
+ *   - Instantiates per-session file from template ({stamp}.md)
+ *   - Registers session in manifest (sessions/manifest.json)
+ *   - Still updates legacy active.md for backward compat
  */
 
 import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
@@ -24,7 +30,18 @@ import {
   writeActiveMd,
   readActiveMd,
   initializePlanningDirectory,
+  instantiateSession,
+  registerSession,
 } from "../lib/planning-fs.js"
+import {
+  createNode,
+  createTree,
+  setRoot,
+  saveTree,
+  toActiveMdBody,
+  generateStamp,
+  toBrainProjection,
+} from "../lib/hierarchy-tree.js"
 
 const VALID_MODES: SessionMode[] = ["plan_driven", "quick_fix", "exploration"]
 
@@ -51,7 +68,7 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
       const config = await loadConfig(directory)
       const stateManager = createStateManager(directory)
 
-      // Ensure planning directory exists
+      // Ensure planning directory exists (creates templates/, manifest, etc.)
       await initializePlanningDirectory(directory)
 
       // Load or create brain state
@@ -67,7 +84,20 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
       // Unlock session
       state = unlockSession(state)
       state.session.mode = args.mode
-      state.hierarchy.trajectory = args.focus
+
+      // === Hierarchy Tree: Create root trajectory node ===
+      const now = new Date()
+      const stamp = generateStamp(now)
+      const rootNode = createNode("trajectory", args.focus, "active", now)
+      let tree = createTree()
+      tree = setRoot(tree, rootNode)
+
+      // Save hierarchy tree to .hivemind/hierarchy.json
+      await saveTree(directory, tree)
+
+      // Project tree into flat brain.json hierarchy (backward compat)
+      const projection = toBrainProjection(tree)
+      state.hierarchy = { ...state.hierarchy, ...projection }
 
       // Reset complexity nudge on new intent declaration
       state = resetComplexityNudge(state)
@@ -75,10 +105,33 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
       // Save state
       await stateManager.save(state)
 
-      // Update active.md with session info
+      // === Per-session file: Instantiate from template ===
+      const sessionFileName = `${stamp}.md`
+      const hierarchyBody = toActiveMdBody(tree)
+      const sessionContent = instantiateSession({
+        sessionId: state.session.id,
+        stamp,
+        mode: args.mode,
+        governanceStatus: "OPEN",
+        created: now.getTime(),
+        hierarchyBody,
+      })
+
+      // Write per-session file
+      const { writeFile } = await import("fs/promises")
+      const { join } = await import("path")
+      const { getPlanningPaths } = await import("../lib/planning-fs.js")
+      const paths = getPlanningPaths(directory)
+      await writeFile(join(paths.sessionsDir, sessionFileName), sessionContent)
+
+      // Register in manifest
+      await registerSession(directory, stamp, sessionFileName)
+
+      // === Legacy active.md: Update for backward compat ===
       const activeMd = await readActiveMd(directory)
       activeMd.frontmatter = {
         session_id: state.session.id,
+        stamp,
         mode: args.mode,
         governance_status: "OPEN",
         start_time: state.session.start_time,
@@ -110,7 +163,7 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
 
       await writeActiveMd(directory, activeMd)
 
-      let response = `Session: "${args.focus}". Mode: ${args.mode}. Status: OPEN.`
+      let response = `Session: "${args.focus}". Mode: ${args.mode}. Status: OPEN. Stamp: ${stamp}.`
       if (oldTrajectory && oldTrajectory !== args.focus) {
         response += `\n⚠ Previous trajectory replaced: "${oldTrajectory}"`
       }

@@ -6,6 +6,7 @@
 import type { HiveMindConfig, GovernanceMode } from "./config.js";
 import type { HierarchyState } from "./hierarchy.js";
 import type { SentimentSignal } from "../lib/sentiment.js";
+import type { FileGuard } from "../lib/planning-fs.js";
 
 export type SessionMode = "plan_driven" | "quick_fix" | "exploration";
 export type GovernanceStatus = "LOCKED" | "OPEN";
@@ -45,6 +46,18 @@ export interface MetricsState {
   total_tool_calls: number;
   successful_tool_calls: number;
   violation_count: number; // Tracks governance violations
+
+  // Detection counters (new — wired by soft-governance.ts detection engine)
+  consecutive_failures: number;           // reset on success
+  consecutive_same_section: number;       // reset on section change
+  last_section_content: string;           // detect repetition
+  tool_type_counts: {                     // per-session tool usage pattern
+    read: number;
+    write: number;
+    query: number;
+    governance: number;
+  };
+  keyword_flags: string[];               // detected keywords this session
 }
 
 export interface BrainState {
@@ -56,6 +69,16 @@ export interface BrainState {
   /** Turn number when last commit suggestion was shown */
   last_commit_suggestion_turn: number;
   version: string;
+
+  // New — hierarchy redesign fields
+  /** Read-before-write guard state for session files */
+  file_guard: FileGuard | null;
+  /** Written by purification subagent for next compaction cycle */
+  next_compaction_report: string | null;
+  /** How many compactions this session */
+  compaction_count: number;
+  /** Epoch ms of last compaction — used for gap detection */
+  last_compaction_time: number;
 }
 
 export const BRAIN_STATE_VERSION = "1.0.0";
@@ -101,11 +124,22 @@ export function createBrainState(
       total_tool_calls: 0,
       successful_tool_calls: 0,
       violation_count: 0,
+      // Detection counters (initialized empty)
+      consecutive_failures: 0,
+      consecutive_same_section: 0,
+      last_section_content: "",
+      tool_type_counts: { read: 0, write: 0, query: 0, governance: 0 },
+      keyword_flags: [],
     },
     sentiment_signals: [],
     complexity_nudge_shown: false,
     last_commit_suggestion_turn: 0,
     version: BRAIN_STATE_VERSION,
+    // Hierarchy redesign fields (initialized null/0)
+    file_guard: null,
+    next_compaction_report: null,
+    compaction_count: 0,
+    last_compaction_time: 0,
   };
 }
 
