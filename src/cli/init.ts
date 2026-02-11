@@ -2,7 +2,7 @@
  * HiveMind Init — One-command project initialization.
  *
  * Creates:
- *   - .opencode/planning/ directory structure
+ *   - .hivemind/ directory structure
  *   - index.md with template
  *   - active.md with LOCKED status
  *   - brain.json with initial state
