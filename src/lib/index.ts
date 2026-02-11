@@ -16,3 +16,5 @@ export * from "./session-export.js";
 export * from "./long-session.js"
 export * from "./anchors.js";
 export * from "./mems.js";
+export * from "./hierarchy-tree.js";
+export * from "./detection.js";
