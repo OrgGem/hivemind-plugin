@@ -11,10 +11,15 @@ import { readFile } from "fs/promises"
 import { createDeclareIntentTool } from "../src/tools/declare-intent.js"
 import { createMapContextTool } from "../src/tools/map-context.js"
 import { createCompactSessionTool } from "../src/tools/compact-session.js"
+import { createScanHierarchyTool } from "../src/tools/scan-hierarchy.js"
+import { createSaveAnchorTool } from "../src/tools/save-anchor.js"
+import { createThinkBackTool } from "../src/tools/think-back.js"
+import { createCheckDriftTool } from "../src/tools/check-drift.js"
 import { createCompactionHook } from "../src/hooks/compaction.js"
 import { createSessionLifecycleHook } from "../src/hooks/session-lifecycle.js"
 import { createLogger } from "../src/lib/logging.js"
 import { loadConfig } from "../src/lib/persistence.js"
+import { loadAnchors, saveAnchors, addAnchor } from "../src/lib/anchors.js"
 import { mkdtemp, rm, readdir } from "fs/promises"
 import { tmpdir } from "os"
 import { join } from "path"
@@ -620,6 +625,319 @@ async function test_longSessionWarningInjectedAtThreshold() {
   }
 }
 
+// ─── Round 3 Integration Tests ─────────────────────────────────────────
+
+async function test_scanHierarchyReturnsStructuredState() {
+  process.stderr.write("\n--- round3: scan_hierarchy returns structured state ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent, set hierarchy
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    const mapContextTool = createMapContextTool(dir)
+
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Scan hierarchy test" }
+    )
+    await mapContextTool.execute(
+      { level: "tactic", content: "Build component", status: "active" }
+    )
+
+    // Step 2: Call scan_hierarchy
+    const scanTool = createScanHierarchyTool(dir)
+    const result = await scanTool.execute({})
+
+    // Step 3: Assert structured JSON output
+    const parsed = JSON.parse(result)
+    assert(
+      parsed.session?.status === "OPEN" && parsed.session?.mode === "plan_driven",
+      "scan_hierarchy returns session info"
+    )
+    assert(
+      parsed.hierarchy?.trajectory === "Scan hierarchy test" &&
+      parsed.hierarchy?.tactic === "Build component",
+      "scan_hierarchy returns hierarchy levels"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_saveAnchorPersistsAndSurvivesCompaction() {
+  process.stderr.write("\n--- round3: save_anchor persists and survives compaction ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Anchor persistence test" }
+    )
+
+    // Step 2: Save an anchor
+    const saveAnchorTool = createSaveAnchorTool(dir)
+    const saveResult = await saveAnchorTool.execute({ key: "DB_TYPE", value: "PostgreSQL" })
+    assert(
+      saveResult.includes("Anchor saved") && saveResult.includes("DB_TYPE"),
+      "save_anchor returns confirmation"
+    )
+
+    // Step 3: Compact session (resets brain state)
+    const compactTool = createCompactSessionTool(dir)
+    await compactTool.execute({ summary: "Anchor test done" })
+
+    // Step 4: Verify anchor survived compaction
+    const anchors = await loadAnchors(dir)
+    assert(
+      anchors.anchors.length === 1 && anchors.anchors[0].key === "DB_TYPE" && anchors.anchors[0].value === "PostgreSQL",
+      "anchor survives session compaction"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_anchorsInjectedIntoSystemPrompt() {
+  process.stderr.write("\n--- round3: anchors injected into system prompt ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Anchors prompt injection test" }
+    )
+
+    // Step 2: Save an anchor
+    const saveAnchorTool = createSaveAnchorTool(dir)
+    await saveAnchorTool.execute({ key: "CONSTRAINT", value: "Never modify production DB" })
+
+    // Step 3: Create session lifecycle hook and call it
+    const config = await loadConfig(dir)
+    const logger = await createLogger(dir, "test")
+    const hook = createSessionLifecycleHook(logger, dir, config)
+    const output = { system: [] as string[] }
+    await hook({ sessionID: "test-session" }, output)
+
+    // Step 4: Assert anchors in system prompt
+    const systemText = output.system.join("\n")
+    assert(
+      systemText.includes("immutable-anchors") && systemText.includes("CONSTRAINT"),
+      "system prompt contains anchors from save_anchor"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_thinkBackIncludesAllContextSections() {
+  process.stderr.write("\n--- round3: think_back includes all context sections ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent, set full hierarchy
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    const mapContextTool = createMapContextTool(dir)
+
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Think back test" }
+    )
+    await mapContextTool.execute(
+      { level: "tactic", content: "Implement feature X", status: "active" }
+    )
+
+    // Step 2: Save an anchor
+    const saveAnchorTool = createSaveAnchorTool(dir)
+    await saveAnchorTool.execute({ key: "API_VERSION", value: "v3" })
+
+    // Step 3: Call think_back
+    const thinkBackTool = createThinkBackTool(dir)
+    const result = await thinkBackTool.execute({})
+
+    // Step 4: Assert all sections present
+    assert(
+      result.includes("THINK BACK") &&
+      result.includes("Trajectory: Think back test") &&
+      result.includes("Tactic: Implement feature X"),
+      "think_back includes hierarchy"
+    )
+    assert(
+      result.includes("Immutable Anchors") && result.includes("[API_VERSION]: v3"),
+      "think_back includes anchors"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_checkDriftShowsHealthyWhenAligned() {
+  process.stderr.write("\n--- round3: check_drift shows healthy when aligned ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent, set full hierarchy (well-aligned)
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    const mapContextTool = createMapContextTool(dir)
+
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Drift check healthy test" }
+    )
+    await mapContextTool.execute(
+      { level: "tactic", content: "On-track tactic", status: "active" }
+    )
+    await mapContextTool.execute(
+      { level: "action", content: "On-track action", status: "active" }
+    )
+
+    // Step 2: Call check_drift
+    const checkDriftTool = createCheckDriftTool(dir)
+    const result = await checkDriftTool.execute({})
+
+    // Step 3: Assert healthy state
+    assert(
+      result.includes("✅") && result.includes("On track"),
+      "check_drift shows healthy when trajectory/tactic/action aligned"
+    )
+    assert(
+      result.includes("Hierarchy chain is intact"),
+      "check_drift shows intact chain when hierarchy complete"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_checkDriftWarnsWhenDrifting() {
+  process.stderr.write("\n--- round3: check_drift warns when drifting ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Step 1: Init project, declare intent
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Drift check warning test" }
+    )
+
+    // Step 2: Artificially inflate turn count to degrade drift score
+    const stateManager = createStateManager(dir)
+    const state = await stateManager.load()
+    if (state) {
+      state.metrics.turn_count = 12  // 12*5=60, capped at 50 → score=50 → ⚠ range
+      state.metrics.context_updates = 0
+      // Set orphaned action for chain break
+      state.hierarchy.tactic = ""
+      state.hierarchy.action = "Orphaned work"
+      await stateManager.save(state)
+    }
+
+    // Step 3: Call check_drift
+    const checkDriftTool = createCheckDriftTool(dir)
+    const result = await checkDriftTool.execute({})
+
+    // Step 4: Assert warning state
+    assert(
+      result.includes("⚠") && result.includes("Some drift detected"),
+      "check_drift warns when drift score in warning range"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_fullCognitiveMeshWorkflow() {
+  process.stderr.write("\n--- round3: full cognitive mesh workflow ---\n")
+
+  const dir = await setup()
+
+  try {
+    // Full workflow: declare → anchor → think → map → drift check → compact
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+
+    const declareIntentTool = createDeclareIntentTool(dir)
+    const mapContextTool = createMapContextTool(dir)
+    const saveAnchorTool = createSaveAnchorTool(dir)
+    const thinkBackTool = createThinkBackTool(dir)
+    const checkDriftTool = createCheckDriftTool(dir)
+    const scanTool = createScanHierarchyTool(dir)
+    const compactTool = createCompactSessionTool(dir)
+
+    // Step 1: Declare intent
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Cognitive mesh workflow" }
+    )
+
+    // Step 2: Save anchors
+    await saveAnchorTool.execute({ key: "STACK", value: "TypeScript + Bun" })
+    await saveAnchorTool.execute({ key: "CONSTRAINT", value: "No external deps" })
+
+    // Step 3: Set full hierarchy
+    await mapContextTool.execute(
+      { level: "tactic", content: "Core implementation", status: "active" }
+    )
+    await mapContextTool.execute(
+      { level: "action", content: "Write pure functions", status: "active" }
+    )
+
+    // Step 4: Think back — verify all context accessible
+    const thinkResult = await thinkBackTool.execute({})
+    assert(
+      thinkResult.includes("Cognitive mesh workflow") &&
+      thinkResult.includes("[STACK]: TypeScript + Bun") &&
+      thinkResult.includes("[CONSTRAINT]: No external deps") &&
+      thinkResult.includes("Core implementation"),
+      "think_back integrates all cognitive mesh components"
+    )
+
+    // Step 5: Scan hierarchy — verify structured data
+    const scanResult = await scanTool.execute({})
+    const parsed = JSON.parse(scanResult)
+    assert(
+      parsed.anchors.length === 2 &&
+      parsed.hierarchy.tactic === "Core implementation" &&
+      parsed.hierarchy.action === "Write pure functions",
+      "scan_hierarchy shows full cognitive mesh state"
+    )
+
+    // Step 6: Check drift — should be healthy
+    const driftResult = await checkDriftTool.execute({})
+    assert(
+      driftResult.includes("On track") && driftResult.includes("Hierarchy chain is intact"),
+      "check_drift confirms healthy cognitive mesh"
+    )
+
+    // Step 7: Compact — anchors survive
+    await compactTool.execute({ summary: "Cognitive mesh workflow complete" })
+    const anchorsAfter = await loadAnchors(dir)
+    assert(
+      anchorsAfter.anchors.length === 2 &&
+      anchorsAfter.anchors.some(a => a.key === "STACK") &&
+      anchorsAfter.anchors.some(a => a.key === "CONSTRAINT"),
+      "anchors survive compaction in full workflow"
+    )
+
+  } finally {
+    await cleanup()
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
@@ -638,6 +956,13 @@ async function main() {
   await test_activeMdContainsLivingPlan()
   await test_compactSessionGeneratesExportFiles()
   await test_longSessionWarningInjectedAtThreshold()
+  await test_scanHierarchyReturnsStructuredState()
+  await test_saveAnchorPersistsAndSurvivesCompaction()
+  await test_anchorsInjectedIntoSystemPrompt()
+  await test_thinkBackIncludesAllContextSections()
+  await test_checkDriftShowsHealthyWhenAligned()
+  await test_checkDriftWarnsWhenDrifting()
+  await test_fullCognitiveMeshWorkflow()
 
   process.stderr.write(`\n=== Integration: ${passed} passed, ${failed_} failed ===\n`)
   process.exit(failed_ > 0 ? 1 : 0)
