@@ -18,7 +18,7 @@ export function createThinkBackTool(directory: string): ToolDefinition {
       const stateManager = createStateManager(directory);
       const state = await stateManager.load();
       if (!state) {
-        return "No active session. Call declare_intent to start.";
+        return "ERROR: No active session. Call declare_intent to start.";
       }
       const anchorsState = await loadAnchors(directory);
       const activeMd = await readActiveMd(directory);
@@ -72,7 +72,7 @@ export function createThinkBackTool(directory: string): ToolDefinition {
       }
 
       lines.push("=== END THINK BACK ===");
-      return lines.join("\n");
+      return lines.join("\n") + "\n→ Use map_context to update your focus, or compact_session to archive and reset.";
     },
   });
 }

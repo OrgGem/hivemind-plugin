@@ -45,6 +45,8 @@ export function createMapContextTool(directory: string): ToolDefinition {
         .describe("Status of this context item (default: active)"),
     },
     async execute(args, _context) {
+      if (!args.content?.trim()) return "ERROR: content cannot be empty. Describe your current focus."
+
       const stateManager = createStateManager(directory)
       const status = args.status ?? "active"
 
@@ -112,7 +114,7 @@ export function createMapContextTool(directory: string): ToolDefinition {
         }
       }
 
-      return `[${args.level}] "${args.content}" → ${status}`
+      return `[${args.level}] "${args.content}" → ${status}\n→ Continue working, or use check_drift to verify alignment.`
     },
   })
 }

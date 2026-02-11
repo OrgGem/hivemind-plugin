@@ -49,7 +49,7 @@ export function createCompactSessionTool(directory: string): ToolDefinition {
       // Load brain state
       const state = await stateManager.load()
       if (!state) {
-        return "ERROR: No active session to compact."
+        return "ERROR: No active session to compact. Call declare_intent to start a session first."
       }
 
       // Read current active.md content for archival
@@ -140,7 +140,7 @@ export function createCompactSessionTool(directory: string): ToolDefinition {
       // Count archives for output
       const archives = await listArchives(directory)
 
-      return `Archived. ${state.metrics.turn_count} turns, ${state.metrics.files_touched.length} files saved. ${archives.length} total archives. Session reset.`
+      return `Archived. ${state.metrics.turn_count} turns, ${state.metrics.files_touched.length} files saved. ${archives.length} total archives. Session reset.\n→ Session is now LOCKED. Call declare_intent to start new work.`
     },
   })
 }

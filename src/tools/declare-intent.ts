@@ -46,6 +46,8 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
         .describe("Why this mode? (optional context)"),
     },
     async execute(args, _context) {
+      if (!args.focus?.trim()) return "ERROR: focus cannot be empty. Describe what you're working on."
+
       const config = await loadConfig(directory)
       const stateManager = createStateManager(directory)
 
@@ -105,7 +107,7 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
 
       await writeActiveMd(directory, activeMd)
 
-      return `Session: "${args.focus}". Mode: ${args.mode}. Status: OPEN.`
+      return `Session: "${args.focus}". Mode: ${args.mode}. Status: OPEN.\n→ Use map_context to break this into tactics and actions.`
     },
   })
 }

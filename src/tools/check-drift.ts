@@ -18,7 +18,7 @@ export function createCheckDriftTool(directory: string): ToolDefinition {
       const stateManager = createStateManager(directory);
       const state = await stateManager.load();
       if (!state) {
-        return "No active session. Call declare_intent to start.";
+        return "ERROR: No active session. Call declare_intent to start.";
       }
       const anchorsState = await loadAnchors(directory);
       const chainBreaks = detectChainBreaks(state);

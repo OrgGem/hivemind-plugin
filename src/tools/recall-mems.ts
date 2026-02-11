@@ -32,7 +32,7 @@ export function createRecallMemsTool(directory: string): ToolDefinition {
       const memsState = await loadMems(directory);
 
       if (memsState.mems.length === 0) {
-        return "Mems Brain is empty. No memories to search.";
+        return "Mems Brain is empty. Use save_mem to store memories first.";
       }
 
       const results = searchMems(memsState, args.query, args.shelf);
