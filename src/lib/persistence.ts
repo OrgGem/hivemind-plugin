@@ -27,7 +27,10 @@ export function createStateManager(projectRoot: string): StateManager {
           return null;
         }
         const data = await readFile(brainPath, "utf-8");
-        return JSON.parse(data) as BrainState;
+        const parsed = JSON.parse(data) as BrainState;
+        // Migration: ensure fields added in v1.5+ exist
+        parsed.last_commit_suggestion_turn ??= 0;
+        return parsed;
       } catch {
         return null;
       }
