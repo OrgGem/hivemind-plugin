@@ -40,7 +40,7 @@ export function createSelfRateTool(directory: string): ToolDefinition {
     async execute(args) {
       const stateManager = createStateManager(directory)
       const log = await createLogger(
-        join(directory, ".opencode", "planning", "logs"),
+        join(directory, ".hivemind", "logs"),
         "self-rate"
       )
 
