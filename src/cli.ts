@@ -151,9 +151,20 @@ async function main(): Promise<void> {
           language: (flags["lang"] as "en" | "vi") ?? "en",
           refreshMs: Math.round(refreshSeconds * 1000),
         })
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error("Failed to start dashboard:", err)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (msg.includes("Cannot find module") || msg.includes("Cannot find package")) {
+          // eslint-disable-next-line no-console
+          console.error(
+            "Dashboard requires optional dependencies: ink and react.\n" +
+            "Install them with:\n\n" +
+            "  npm install ink react\n\n" +
+            "The core HiveMind plugin (tools, hooks) works without them."
+          )
+        } else {
+          // eslint-disable-next-line no-console
+          console.error("Failed to start dashboard:", msg)
+        }
         process.exit(1)
       }
       break
