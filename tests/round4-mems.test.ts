@@ -1,13 +1,16 @@
 /**
- * Round 4 Mems Tests — Persistence, CRUD, Search, Prompt Formatting
+ * Round 4 Mems Tests — Persistence, CRUD, Search, Prompt Formatting, Tool Tests
  *
- * 20 assertions:
+ * 34 assertions:
  *   Persistence + CRUD (10): load, add, unique ID, tags, remove, remove no-op, roundtrip, ID format, ID uniqueness, shelf summary
  *   Search (6): content match, tag match, shelf filter, no match, newest first, getMemsByShelf
  *   Prompt formatting (4): empty, count+breakdown, recall_mems suggestion, multiple shelves
+ *   save_mem tool (5): saves to mems.json, tags stored, confirmation message, unique IDs, survives compaction
+ *   list_shelves tool (3): empty message, shelf counts, recent memories
+ *   recall_mems tool (6): empty message, content match, tag match, no match, shelf filter, cap at 5
  */
 
-import { mkdtempSync, rmSync } from "fs"
+import { mkdtempSync, rmSync, existsSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import {
@@ -22,6 +25,12 @@ import {
   generateMemId,
 } from "../src/lib/mems.js"
 import type { MemsState } from "../src/lib/mems.js"
+import { createSaveMemTool } from "../src/tools/save-mem.js"
+import { createListShelvesTool } from "../src/tools/list-shelves.js"
+import { createRecallMemsTool } from "../src/tools/recall-mems.js"
+import { createStateManager } from "../src/lib/persistence.js"
+import { createBrainState } from "../src/schemas/brain-state.js"
+import { createConfig } from "../src/schemas/config.js"
 
 // ─── Harness ─────────────────────────────────────────────────────────
 
@@ -253,6 +262,316 @@ async function test_formatting() {
   )
 }
 
+// ─── save_mem Tool (5 assertions) ─────────────────────────────────────
+
+async function test_saveMemTool() {
+  process.stderr.write("\n--- save_mem: tool tests ---\n")
+
+  // 1. save_mem saves to mems.json (existsSync check)
+  const tmpDir1 = makeTmpDir()
+  try {
+    const config = createConfig({ governance_mode: "assisted" })
+    const brainState = createBrainState("save-mem-test-1", config)
+    const stateManager = createStateManager(tmpDir1)
+    await stateManager.save(brainState)
+
+    const tool = createSaveMemTool(tmpDir1)
+    await tool.execute({ shelf: "decisions", content: "Use PostgreSQL for persistence" })
+
+    const memsPath = join(tmpDir1, ".hivemind", "mems.json")
+    assert(
+      existsSync(memsPath),
+      "save_mem saves to mems.json"
+    )
+  } finally {
+    cleanTmpDir(tmpDir1)
+  }
+
+  // 2. save_mem with tags stores tag array
+  const tmpDir2 = makeTmpDir()
+  try {
+    const config = createConfig({ governance_mode: "assisted" })
+    const brainState = createBrainState("save-mem-test-2", config)
+    const stateManager = createStateManager(tmpDir2)
+    await stateManager.save(brainState)
+
+    const tool = createSaveMemTool(tmpDir2)
+    await tool.execute({ shelf: "errors", content: "OOM on large batch", tags: "memory,leak" })
+
+    const loaded = await loadMems(tmpDir2)
+    assert(
+      loaded.mems.length === 1 && loaded.mems[0].tags.length === 2 && loaded.mems[0].tags[0] === "memory" && loaded.mems[0].tags[1] === "leak",
+      "save_mem with tags stores tag array"
+    )
+  } finally {
+    cleanTmpDir(tmpDir2)
+  }
+
+  // 3. save_mem returns confirmation with shelf and count
+  const tmpDir3 = makeTmpDir()
+  try {
+    const config = createConfig({ governance_mode: "assisted" })
+    const brainState = createBrainState("save-mem-test-3", config)
+    const stateManager = createStateManager(tmpDir3)
+    await stateManager.save(brainState)
+
+    const tool = createSaveMemTool(tmpDir3)
+    const result = await tool.execute({ shelf: "decisions", content: "Use REST API" })
+
+    assert(
+      result.includes("[decisions]") && result.includes("total memories"),
+      "save_mem returns confirmation with shelf and count"
+    )
+  } finally {
+    cleanTmpDir(tmpDir3)
+  }
+
+  // 4. save_mem assigns unique IDs (save 2, load, check IDs differ)
+  const tmpDir4 = makeTmpDir()
+  try {
+    const config = createConfig({ governance_mode: "assisted" })
+    const brainState = createBrainState("save-mem-test-4", config)
+    const stateManager = createStateManager(tmpDir4)
+    await stateManager.save(brainState)
+
+    const tool = createSaveMemTool(tmpDir4)
+    await tool.execute({ shelf: "decisions", content: "First decision" })
+    await tool.execute({ shelf: "decisions", content: "Second decision" })
+
+    const loaded = await loadMems(tmpDir4)
+    assert(
+      loaded.mems.length === 2 && loaded.mems[0].id !== loaded.mems[1].id,
+      "save_mem assigns unique IDs"
+    )
+  } finally {
+    cleanTmpDir(tmpDir4)
+  }
+
+  // 5. mems survive session compaction (save mem → overwrite brain state → load mems → still there)
+  const tmpDir5 = makeTmpDir()
+  try {
+    const config = createConfig({ governance_mode: "assisted" })
+    const brainState = createBrainState("save-mem-test-5", config)
+    const stateManager = createStateManager(tmpDir5)
+    await stateManager.save(brainState)
+
+    const tool = createSaveMemTool(tmpDir5)
+    await tool.execute({ shelf: "patterns", content: "Factory pattern for services" })
+
+    // Simulate compaction by overwriting brain state
+    const newBrain = createBrainState("new-session-after-compact", config)
+    await stateManager.save(newBrain)
+
+    const loaded = await loadMems(tmpDir5)
+    assert(
+      loaded.mems.length === 1 && loaded.mems[0].content === "Factory pattern for services",
+      "mems survive session compaction"
+    )
+  } finally {
+    cleanTmpDir(tmpDir5)
+  }
+}
+
+// ─── list_shelves Tool (3 assertions) ──────────────────────────────────
+
+async function test_listShelvesTool() {
+  process.stderr.write("\n--- list_shelves: tool tests ---\n")
+
+  // 6. list_shelves returns empty message for no mems
+  const tmpDir1 = makeTmpDir()
+  try {
+    const tool = createListShelvesTool(tmpDir1)
+    const result = await tool.execute({})
+
+    assert(
+      result.includes("Mems Brain is empty"),
+      "list_shelves returns empty message for no mems"
+    )
+  } finally {
+    cleanTmpDir(tmpDir1)
+  }
+
+  // 7. list_shelves shows shelf counts
+  const tmpDir2 = makeTmpDir()
+  try {
+    const config = createConfig({ governance_mode: "assisted" })
+    const brainState = createBrainState("list-shelves-test-2", config)
+    const stateManager = createStateManager(tmpDir2)
+    await stateManager.save(brainState)
+
+    const saveTool = createSaveMemTool(tmpDir2)
+    await saveTool.execute({ shelf: "decisions", content: "Decision 1" })
+    await saveTool.execute({ shelf: "decisions", content: "Decision 2" })
+    await saveTool.execute({ shelf: "errors", content: "Error 1" })
+
+    const listTool = createListShelvesTool(tmpDir2)
+    const result = await listTool.execute({})
+
+    assert(
+      result.includes("decisions: 2") && result.includes("errors: 1"),
+      "list_shelves shows shelf counts"
+    )
+  } finally {
+    cleanTmpDir(tmpDir2)
+  }
+
+  // 8. list_shelves shows recent memories (includes content preview)
+  const tmpDir3 = makeTmpDir()
+  try {
+    const config = createConfig({ governance_mode: "assisted" })
+    const brainState = createBrainState("list-shelves-test-3", config)
+    const stateManager = createStateManager(tmpDir3)
+    await stateManager.save(brainState)
+
+    const saveTool = createSaveMemTool(tmpDir3)
+    await saveTool.execute({ shelf: "solutions", content: "Cache invalidation via TTL" })
+
+    const listTool = createListShelvesTool(tmpDir3)
+    const result = await listTool.execute({})
+
+    assert(
+      result.includes("Cache invalidation via TTL"),
+      "list_shelves shows recent memories"
+    )
+  } finally {
+    cleanTmpDir(tmpDir3)
+  }
+}
+
+// ─── recall_mems Tool (6 assertions) ───────────────────────────────────
+
+async function test_recallMemsTool() {
+  process.stderr.write("\n--- recall_mems: tool tests ---\n")
+
+  // 9. recall_mems returns empty message when no mems
+  const tmpDir1 = makeTmpDir()
+  try {
+    const tool = createRecallMemsTool(tmpDir1)
+    const result = await tool.execute({ query: "anything" })
+
+    assert(
+      result.includes("empty"),
+      "recall_mems returns empty message when no mems"
+    )
+  } finally {
+    cleanTmpDir(tmpDir1)
+  }
+
+  // 10. recall_mems finds matching content
+  const tmpDir2 = makeTmpDir()
+  try {
+    const config = createConfig({ governance_mode: "assisted" })
+    const brainState = createBrainState("recall-test-2", config)
+    const stateManager = createStateManager(tmpDir2)
+    await stateManager.save(brainState)
+
+    const saveTool = createSaveMemTool(tmpDir2)
+    await saveTool.execute({ shelf: "decisions", content: "Use PostgreSQL for persistence" })
+    await saveTool.execute({ shelf: "errors", content: "Redis connection timeout" })
+
+    const recallTool = createRecallMemsTool(tmpDir2)
+    const result = await recallTool.execute({ query: "PostgreSQL" })
+
+    assert(
+      result.includes("PostgreSQL") && result.includes("1 memories found"),
+      "recall_mems finds matching content"
+    )
+  } finally {
+    cleanTmpDir(tmpDir2)
+  }
+
+  // 11. recall_mems finds matching tags
+  const tmpDir3 = makeTmpDir()
+  try {
+    const config = createConfig({ governance_mode: "assisted" })
+    const brainState = createBrainState("recall-test-3", config)
+    const stateManager = createStateManager(tmpDir3)
+    await stateManager.save(brainState)
+
+    const saveTool = createSaveMemTool(tmpDir3)
+    await saveTool.execute({ shelf: "errors", content: "OOM on large batch", tags: "memory,leak" })
+
+    const recallTool = createRecallMemsTool(tmpDir3)
+    const result = await recallTool.execute({ query: "leak" })
+
+    assert(
+      result.includes("OOM on large batch"),
+      "recall_mems finds matching tags"
+    )
+  } finally {
+    cleanTmpDir(tmpDir3)
+  }
+
+  // 12. recall_mems returns no-match message for unknown query
+  const tmpDir4 = makeTmpDir()
+  try {
+    const config = createConfig({ governance_mode: "assisted" })
+    const brainState = createBrainState("recall-test-4", config)
+    const stateManager = createStateManager(tmpDir4)
+    await stateManager.save(brainState)
+
+    const saveTool = createSaveMemTool(tmpDir4)
+    await saveTool.execute({ shelf: "decisions", content: "Use REST API" })
+
+    const recallTool = createRecallMemsTool(tmpDir4)
+    const result = await recallTool.execute({ query: "nonexistent_xyz_query" })
+
+    assert(
+      result.includes("No memories found"),
+      "recall_mems returns no-match message for unknown query"
+    )
+  } finally {
+    cleanTmpDir(tmpDir4)
+  }
+
+  // 13. recall_mems filters by shelf when provided
+  const tmpDir5 = makeTmpDir()
+  try {
+    const config = createConfig({ governance_mode: "assisted" })
+    const brainState = createBrainState("recall-test-5", config)
+    const stateManager = createStateManager(tmpDir5)
+    await stateManager.save(brainState)
+
+    const saveTool = createSaveMemTool(tmpDir5)
+    await saveTool.execute({ shelf: "decisions", content: "Use PostgreSQL db" })
+    await saveTool.execute({ shelf: "errors", content: "Database db connection lost" })
+
+    const recallTool = createRecallMemsTool(tmpDir5)
+    const result = await recallTool.execute({ query: "db", shelf: "decisions" })
+
+    assert(
+      result.includes("1 memories found") && result.includes("PostgreSQL"),
+      "recall_mems filters by shelf when provided"
+    )
+  } finally {
+    cleanTmpDir(tmpDir5)
+  }
+
+  // 14. recall_mems caps results at 5 (save 7 matching mems, search, output includes "and 2 more")
+  const tmpDir6 = makeTmpDir()
+  try {
+    const config = createConfig({ governance_mode: "assisted" })
+    const brainState = createBrainState("recall-test-6", config)
+    const stateManager = createStateManager(tmpDir6)
+    await stateManager.save(brainState)
+
+    const saveTool = createSaveMemTool(tmpDir6)
+    for (let i = 0; i < 7; i++) {
+      await saveTool.execute({ shelf: "patterns", content: `Pattern match item ${i}` })
+    }
+
+    const recallTool = createRecallMemsTool(tmpDir6)
+    const result = await recallTool.execute({ query: "Pattern match" })
+
+    assert(
+      result.includes("7 memories found") && result.includes("and 2 more"),
+      "recall_mems caps results at 5"
+    )
+  } finally {
+    cleanTmpDir(tmpDir6)
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
@@ -261,6 +580,9 @@ async function main() {
   await test_persistence()
   await test_search()
   await test_formatting()
+  await test_saveMemTool()
+  await test_listShelvesTool()
+  await test_recallMemsTool()
 
   process.stderr.write(`\n=== Round 4: ${passed} passed, ${failed_} failed ===\n`)
   process.exit(failed_ > 0 ? 1 : 0)
