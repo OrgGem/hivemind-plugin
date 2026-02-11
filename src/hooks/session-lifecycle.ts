@@ -212,6 +212,7 @@ export function createSessionLifecycleHook(
         detection,
         timestampGapMs: maxGapMs,
         sessionFileLines,
+        missingTree: !treeExists(directory),
         thresholds: mergedThresholds,
         maxSignals: 3,
       })
