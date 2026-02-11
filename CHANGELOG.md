@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-02-11
+
+### Fixed
+- **SHOWSTOPPER**: Tool registration changed from array to named Record — tools were being registered as "0", "1", "2" instead of "declare_intent", "map_context", etc. Agents could not call any tool by name.
+- **CRITICAL**: `hivemind init` crash on npm install — `docs/` directory now included in `package.json#files`
+- **CRITICAL**: System transform hook now accepts `model` parameter matching SDK contract
+- **CRITICAL**: Legacy `.opencode` path in self-rate tool changed to `.hivemind/logs`
+- **HIGH**: Double-counting turn increments — `incrementTurnCount` removed from `tool.execute.before` hook (kept only in `tool.execute.after`)
+- **MEDIUM**: All 11 tools now accept `ToolContext` parameter matching SDK `execute(args, context)` signature
+
+### Changed
+- Removed unused `zod` dependency from `package.json#dependencies` (SDK re-exports via `tool.schema.*`)
+- Stale `.opencode/planning/` doc comment in `src/cli/init.ts` updated to `.hivemind/`
+
+## [1.5.0] - 2026-02-11
+
+### Added
+- **Mems Brain** — Persistent, shelf-organized memory system for cross-session knowledge
+- 3 new tools: `save_mem`, `list_shelves`, `recall_mems`
+- Auto-mem on compaction: saves session summary to "sessions" shelf
+- System prompt injection: mem count indicator
+- Compaction context: injects recent mems for context preservation
+- 40 new test assertions (Round 4)
+
 ## [1.4.0] - 2026-02-11
 
 ### Changed
