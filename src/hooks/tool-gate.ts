@@ -17,7 +17,6 @@ import type { Logger } from "../lib/logging.js"
 import type { HiveMindConfig } from "../schemas/config.js"
 import {
   isSessionLocked,
-  incrementTurnCount,
   shouldTriggerDriftWarning,
   addFileTouched,
   calculateDriftScore,
@@ -153,20 +152,23 @@ export function createToolGateHook(
         }
       }
 
-      // Session is open — track activity
+      // Session is open — track activity (turn count incremented in tool.execute.after only)
       if (state) {
-        state = incrementTurnCount(state)
+        let needsSave = false
 
         // Track file touches for write tools (tool name used as proxy)
         if (isWriteTool(toolName)) {
           state = addFileTouched(state, `[via ${toolName}]`)
+          needsSave = true
         }
 
         // Update drift score
         state.metrics.drift_score = calculateDriftScore(state)
 
-        // Save updated state
-        await stateManager.save(state)
+        // Save updated state only if something changed
+        if (needsSave) {
+          await stateManager.save(state)
+        }
 
         // Check drift warning
         if (
@@ -317,20 +319,23 @@ export function createToolGateHookInternal(
         }
       }
 
-      // Session is open — track activity
+      // Session is open — track activity (turn count incremented in tool.execute.after only)
       if (state) {
-        state = incrementTurnCount(state)
+        let needsSave = false
 
         // Track file touches for write tools (tool name used as proxy)
         if (isWriteTool(toolName)) {
           state = addFileTouched(state, `[via ${toolName}]`)
+          needsSave = true
         }
 
         // Update drift score
         state.metrics.drift_score = calculateDriftScore(state)
 
-        // Save updated state
-        await stateManager.save(state)
+        // Save updated state only if something changed
+        if (needsSave) {
+          await stateManager.save(state)
+        }
 
         // Check drift warning
         if (

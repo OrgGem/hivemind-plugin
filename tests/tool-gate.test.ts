@@ -129,7 +129,7 @@ async function test_permissive_allows_silently() {
   await cleanup()
 }
 
-// ─── turn counting / drift ──────────────────────────────────────────
+// ─── file tracking / drift ──────────────────────────────────────────
 
 async function test_drift_tracking() {
   process.stderr.write("\n--- tool-gate: drift tracking ---\n")
@@ -142,15 +142,17 @@ async function test_drift_tracking() {
 
   const hook = createToolGateHookInternal(noopLogger, dir, config)
 
-  // Run 5 tool calls with a non-exempt tool to exceed threshold
-  for (let i = 0; i < 5; i++) {
-    await hook({ sessionID: "test-drift", tool: "bash" })
-  }
+  // Run tool calls with write tools to trigger file tracking
+  // (turn count is now only incremented in tool.execute.after / soft-governance)
+  await hook({ sessionID: "test-drift", tool: "write" })
+  await hook({ sessionID: "test-drift", tool: "edit" })
+  await hook({ sessionID: "test-drift", tool: "create" })
 
-  // Check state was updated
+  // Check state was updated with file touches (write tools trigger saves)
+  // addFileTouched deduplicates by path, so each unique tool name = 1 entry
   const updated = await sm.load()
   assert(updated !== null, "state exists after tool calls")
-  assert(updated!.metrics.turn_count >= 5, "turn count incremented")
+  assert(updated!.metrics.files_touched.length >= 3, "file touches tracked for write tools")
 
   await cleanup()
 }
