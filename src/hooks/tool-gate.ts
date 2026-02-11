@@ -27,43 +27,27 @@ import { checkComplexity } from "../lib/complexity.js"
 
 /** Tools that are always allowed regardless of governance state */
 const EXEMPT_TOOLS = new Set([
-  "declare_intent",
-  "map_context",
-  "compact_session",
-  "read",
-  "grep",
-  "glob",
-  "find",
-  "list",
-  "search",
+  // HiveMind tools (always allowed)
+  "declare_intent", "map_context", "compact_session", "self_rate",
+  "scan_hierarchy", "save_anchor", "think_back", "check_drift",
+  "save_mem", "list_shelves", "recall_mems",
+  // OpenCode innate read-only tools
+  "read", "grep", "glob",
+  // OpenCode innate utility tools (can't block these meaningfully)
+  "bash", "webfetch", "task", "skill", "todowrite", "google_search",
 ])
 
 /** Write/edit tools that governance should gate */
 const WRITE_TOOLS = new Set([
-  "write",
-  "edit",
-  "create",
-  "delete",
-  "rename",
-  "move",
-  "patch",
+  "write", "edit",
 ])
 
 function isExemptTool(toolName: string): boolean {
-  // Check full name match
-  if (EXEMPT_TOOLS.has(toolName)) return true
-  // Check if tool name starts with an exempt prefix
-  for (const exempt of EXEMPT_TOOLS) {
-    if (toolName.startsWith(exempt)) return true
-  }
-  return false
+  return EXEMPT_TOOLS.has(toolName)
 }
 
 function isWriteTool(toolName: string): boolean {
-  for (const w of WRITE_TOOLS) {
-    if (toolName.includes(w)) return true
-  }
-  return false
+  return WRITE_TOOLS.has(toolName)
 }
 
 export interface ToolGateResult {

@@ -40,7 +40,6 @@ export function createSoftGovernanceHook(
       tool: string
       sessionID: string
       callID: string
-      args?: Record<string, any>
     },
     _output: {
       title: string
@@ -79,9 +78,6 @@ export function createSoftGovernanceHook(
       // Track tool call (success inferred - hook called means no exception)
       newState = trackToolHealth(newState, true)
 
-      // Save updated state
-      await stateManager.save(newState)
-
       // Chain break logging
       const chainBreaks = detectChainBreaks(newState);
       if (chainBreaks.length > 0) {
@@ -94,7 +90,6 @@ export function createSoftGovernanceHook(
       const commitSuggestion = shouldSuggestCommit(newState, config.commit_suggestion_threshold);
       if (commitSuggestion) {
         newState = setLastCommitSuggestionTurn(newState, newState.metrics.turn_count);
-        await stateManager.save(newState);
       }
 
       // Long session detection
@@ -102,6 +97,9 @@ export function createSoftGovernanceHook(
       if (longSession.isLong) {
         await log.warn(longSession.suggestion);
       }
+
+      // Single save at the end
+      await stateManager.save(newState)
 
       // Log drift warnings if detected
       if (driftWarning) {
@@ -128,13 +126,9 @@ export function createSoftGovernanceHook(
  *   - Repeated tool calls without any map_context updates
  */
 function shouldTrackAsViolation(toolName: string, governanceMode: string): boolean {
-  // In strict mode, writing/editing without declaring intent is a violation
   if (governanceMode === "strict") {
-    const writeEditTools = ["write", "edit", "replace"]
-    return writeEditTools.some(t => toolName.toLowerCase().includes(t))
+    return toolName === "write" || toolName === "edit"
   }
-
-  // In assisted/permissive mode, no hard violations
   return false
 }
 

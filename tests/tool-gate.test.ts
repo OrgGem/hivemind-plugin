@@ -71,8 +71,8 @@ async function test_strict_allows_exempt_tools() {
   const readResult = await hook({ sessionID: "test-2", tool: "read" })
   assert(readResult.allowed, "read tool is exempt")
 
-  const searchResult = await hook({ sessionID: "test-2", tool: "search_codebase" })
-  assert(searchResult.allowed, "search tool is exempt")
+  const bashResult = await hook({ sessionID: "test-2", tool: "bash" })
+  assert(bashResult.allowed, "bash tool is exempt")
 
   const declareResult = await hook({ sessionID: "test-2", tool: "declare_intent" })
   assert(declareResult.allowed, "declare_intent is exempt")
@@ -146,13 +146,12 @@ async function test_drift_tracking() {
   // (turn count is now only incremented in tool.execute.after / soft-governance)
   await hook({ sessionID: "test-drift", tool: "write" })
   await hook({ sessionID: "test-drift", tool: "edit" })
-  await hook({ sessionID: "test-drift", tool: "create" })
 
   // Check state was updated with file touches (write tools trigger saves)
   // addFileTouched deduplicates by path, so each unique tool name = 1 entry
   const updated = await sm.load()
   assert(updated !== null, "state exists after tool calls")
-  assert(updated!.metrics.files_touched.length >= 3, "file touches tracked for write tools")
+  assert(updated!.metrics.files_touched.length >= 2, "file touches tracked for write tools")
 
   await cleanup()
 }
