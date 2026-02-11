@@ -39,6 +39,7 @@ import {
   compileSignals,
   formatSignals,
   createDetectionState,
+  DEFAULT_THRESHOLDS,
   type DetectionState,
 } from "../lib/detection.js"
 import {
@@ -176,6 +177,7 @@ export function createSessionLifecycleHook(
 
       // Compute timestamp gap from hierarchy tree
       let maxGapMs: number | undefined;
+      let sessionFileLines: number | undefined;
       if (treeExists(directory)) {
         try {
           const tree = await loadTree(directory);
@@ -189,11 +191,28 @@ export function createSessionLifecycleHook(
         }
       }
 
-      // Compile detection signals
+      // Compute session file line count (for max_active_md_lines threshold)
+      try {
+        const activeMd = await readActiveMd(directory);
+        if (activeMd.body) {
+          sessionFileLines = activeMd.body.split('\n').length;
+        }
+      } catch {
+        // Non-fatal — line count is best-effort
+      }
+
+      // Compile detection signals with merged thresholds
+      const mergedThresholds = { ...DEFAULT_THRESHOLDS, ...config.detection_thresholds }
+      // Wire max_active_md_lines into detection thresholds (config → threshold bridge)
+      if (!config.detection_thresholds?.session_file_lines) {
+        mergedThresholds.session_file_lines = config.max_active_md_lines;
+      }
       const signals = compileSignals({
         turnCount: state.metrics.turn_count,
         detection,
         timestampGapMs: maxGapMs,
+        sessionFileLines,
+        thresholds: mergedThresholds,
         maxSignals: 3,
       })
       const signalBlock = formatSignals(signals)

@@ -64,6 +64,8 @@ export interface DetectionThresholds {
   completed_branch_threshold: number;
   /** Timestamp gap in ms before stale alert (default: 2h) */
   stale_gap_ms: number;
+  /** Session file line count before warning (default: 50) */
+  session_file_lines: number;
 }
 
 /** Default detection thresholds */
@@ -74,6 +76,7 @@ export const DEFAULT_THRESHOLDS: DetectionThresholds = {
   read_write_imbalance: 8,
   completed_branch_threshold: 5,
   stale_gap_ms: 2 * 60 * 60 * 1000, // 2 hours
+  session_file_lines: 50,
 };
 
 /** Create initial detection state */
@@ -352,6 +355,8 @@ export function compileSignals(opts: {
   timestampGapMs?: number;
   /** Optional: is hierarchy.json missing (migration needed)? */
   missingTree?: boolean;
+  /** Optional: current active session file line count */
+  sessionFileLines?: number;
   /** Thresholds for triggering signals */
   thresholds?: DetectionThresholds;
   /** Budget cap: maximum number of signals to return */
@@ -447,6 +452,19 @@ export function compileSignals(opts: {
       severity: 0,
       message: "No hierarchy.json found. Run hierarchy_migrate to upgrade.",
       suggestion: "hierarchy_migrate",
+    });
+  }
+
+  // 9. Session file too long
+  if (
+    opts.sessionFileLines !== undefined &&
+    opts.sessionFileLines >= thresholds.session_file_lines
+  ) {
+    signals.push({
+      type: "session_file_long",
+      severity: 4,
+      message: `Session file at ${opts.sessionFileLines} lines (threshold: ${thresholds.session_file_lines}). Consider compacting.`,
+      suggestion: "compact_session",
     });
   }
 

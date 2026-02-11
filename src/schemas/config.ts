@@ -3,6 +3,8 @@
  * Defines governance modes, project settings, and agent behavior constraints
  */
 
+import type { DetectionThresholds } from "../lib/detection.js";
+
 export type GovernanceMode = "permissive" | "assisted" | "strict";
 export type Language = "en" | "vi";
 export type ExpertLevel = "beginner" | "intermediate" | "advanced" | "expert";
@@ -47,6 +49,8 @@ export interface HiveMindConfig {
   commit_suggestion_threshold: number;
   /** Agent behavior configuration - injected into every session */
   agent_behavior: AgentBehaviorConfig;
+  /** Override detection thresholds (merged with defaults at runtime) */
+  detection_thresholds?: Partial<DetectionThresholds>;
 }
 
 export const DEFAULT_AGENT_BEHAVIOR: AgentBehaviorConfig = {

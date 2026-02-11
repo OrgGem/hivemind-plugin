@@ -48,7 +48,7 @@ export function createSoftGovernanceHook(
   config: HiveMindConfig
 ) {
   const stateManager = createStateManager(directory)
-  const MAX_TURNS_BEFORE_WARNING = 5
+  const MAX_TURNS_BEFORE_WARNING = config.max_turns_before_warning
 
   return async (
     input: {
