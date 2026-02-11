@@ -17,6 +17,14 @@ export interface SessionState {
   governance_status: GovernanceStatus;
   start_time: number;
   last_activity: number;
+  /** ISO date string (YYYY-MM-DD) of session creation */
+  date: string;
+  /** User-defined key for session categorization */
+  meta_key: string;
+  /** Agent role/identity for this session */
+  role: string;
+  /** Whether session was initiated by AI (true) or human (false) */
+  by_ai: boolean;
 }
 
 export interface SelfRating {
@@ -73,6 +81,10 @@ export function createBrainState(
       governance_status: config.governance_mode === "strict" ? "LOCKED" : "OPEN",
       start_time: now,
       last_activity: now,
+      date: new Date(now).toISOString().split("T")[0],
+      meta_key: "",
+      role: "",
+      by_ai: true,
     },
     hierarchy: {
       trajectory: "",

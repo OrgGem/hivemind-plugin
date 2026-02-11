@@ -30,6 +30,11 @@ export function createStateManager(projectRoot: string): StateManager {
         const parsed = JSON.parse(data) as BrainState;
         // Migration: ensure fields added in v1.5+ exist
         parsed.last_commit_suggestion_turn ??= 0;
+        // Migration: ensure Round 2 session fields exist
+        parsed.session.date ??= new Date(parsed.session.start_time).toISOString().split("T")[0];
+        parsed.session.meta_key ??= "";
+        parsed.session.role ??= "";
+        parsed.session.by_ai ??= true;
         return parsed;
       } catch {
         return null;
