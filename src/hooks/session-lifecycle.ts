@@ -38,7 +38,9 @@ import { detectLongSession } from "../lib/long-session.js"
 import { getToolActivation } from "../lib/tool-activation.js"
 import {
   compileEscalatedSignals,
+  compileIgnoredTier,
   formatSignals,
+  formatIgnoredEvidence,
   createDetectionState,
   DEFAULT_THRESHOLDS,
   type DetectionState,
@@ -379,6 +381,29 @@ export function createSessionLifecycleHook(
       const signalBlock = formatSignals(signals)
       if (signalBlock && config.governance_mode !== "permissive") {
         warningLines.push(signalBlock)
+      }
+
+      const ignoredTier = compileIgnoredTier({
+        counters: state.metrics.governance_counters,
+        governanceMode: config.governance_mode,
+        expertLevel: config.agent_behavior.expert_level,
+        evidence: {
+          declaredOrder: "declare_intent -> map_context(tactic) -> map_context(action) -> execution",
+          actualOrder: `turn ${state.metrics.turn_count}: reads=${detection.tool_type_counts.read}, writes=${detection.tool_type_counts.write}, governance=${detection.tool_type_counts.governance}`,
+          missingPrerequisites: [
+            ...(state.hierarchy.trajectory ? [] : ["trajectory"]),
+            ...(state.hierarchy.tactic ? [] : ["tactic"]),
+            ...(state.hierarchy.action ? [] : ["action"]),
+          ],
+          expectedHierarchy: "trajectory -> tactic -> action",
+          actualHierarchy: `trajectory=${state.hierarchy.trajectory || "(empty)"}, tactic=${state.hierarchy.tactic || "(empty)"}, action=${state.hierarchy.action || "(empty)"}`,
+        },
+      })
+      if (ignoredTier) {
+        warningLines.push(
+          `[IGNORED] ${ignoredTier.unacknowledgedCycles} unacknowledged governance cycles. Tone: ${ignoredTier.tone}.`
+        )
+        warningLines.push(`  ${formatIgnoredEvidence(ignoredTier.evidence)}`)
       }
 
       if (frameworkContext.mode === "gsd" && frameworkContext.gsdPhaseGoal && config.governance_mode !== "permissive") {

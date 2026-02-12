@@ -6,7 +6,10 @@
 
 import {
   compileEscalatedSignals,
+  compileIgnoredTier,
   computeEscalationTier,
+  evaluateIgnoredResetPolicy,
+  formatIgnoredEvidence,
   formatSignals,
   createDetectionState,
   DEFAULT_THRESHOLDS,
@@ -366,6 +369,77 @@ function test_evidence_quality() {
   );
 }
 
+// ─── IGNORED tier tri-evidence + reset policy ────────────────────────
+
+function test_ignored_tier_contract() {
+  process.stderr.write("\n--- ignored-tier-contract ---\n");
+
+  const result = compileIgnoredTier({
+    counters: {
+      out_of_order: 4,
+      drift: 3,
+      compaction: 0,
+      evidence_pressure: 3,
+      ignored: 0,
+      acknowledged: false,
+      prerequisites_completed: false,
+    },
+    governanceMode: "strict",
+    expertLevel: "beginner",
+    evidence: {
+      declaredOrder: "declare_intent -> map_context -> execute",
+      actualOrder: "execute -> execute -> map_context",
+      missingPrerequisites: ["trajectory", "tactic"],
+      expectedHierarchy: "trajectory -> tactic -> action",
+      actualHierarchy: "trajectory=(empty), tactic=(empty), action=write patch",
+    },
+  });
+
+  assert(result?.tier === "IGNORED", "10+ unacknowledged cycles trigger IGNORED tier");
+  assert(result?.severity === "error", "IGNORED tier uses error severity");
+
+  const block = formatIgnoredEvidence(result!.evidence);
+  assert(block.includes("[SEQ]"), "IGNORED evidence block contains sequence evidence");
+  assert(block.includes("[PLAN]"), "IGNORED evidence block contains plan evidence");
+  assert(block.includes("[HIER]"), "IGNORED evidence block contains hierarchy evidence");
+}
+
+function test_ignored_reset_policy() {
+  process.stderr.write("\n--- ignored-reset-policy ---\n");
+
+  const downgrade = evaluateIgnoredResetPolicy({
+    counters: {
+      out_of_order: 2,
+      drift: 2,
+      compaction: 0,
+      evidence_pressure: 2,
+      ignored: 4,
+      acknowledged: true,
+      prerequisites_completed: false,
+    },
+    prerequisitesCompleted: false,
+    missedStepCount: 3,
+    hierarchyImpact: "high",
+  });
+  assert(downgrade.downgrade && !downgrade.fullReset, "acknowledgement can downgrade severity");
+
+  const fullReset = evaluateIgnoredResetPolicy({
+    counters: {
+      out_of_order: 1,
+      drift: 0,
+      compaction: 0,
+      evidence_pressure: 0,
+      ignored: 3,
+      acknowledged: true,
+      prerequisites_completed: true,
+    },
+    prerequisitesCompleted: true,
+    missedStepCount: 1,
+    hierarchyImpact: "low",
+  });
+  assert(fullReset.fullReset, "full reset only allowed when prerequisites complete");
+}
+
 // ─── Runner ──────────────────────────────────────────────────────────
 
 async function main() {
@@ -378,6 +452,8 @@ async function main() {
   test_automation_level();
   await test_retard_mode_init();
   test_evidence_quality();
+  test_ignored_tier_contract();
+  test_ignored_reset_policy();
 
   process.stderr.write(`\n=== Evidence Gate: ${passed} passed, ${failed_} failed ===\n`);
   if (failed_ > 0) process.exit(1);

@@ -34,7 +34,13 @@ import {
   addKeywordFlags,
   createDetectionState,
   computeGovernanceSeverity,
+  computeUnacknowledgedCycles,
+  compileIgnoredTier,
+  evaluateIgnoredResetPolicy,
+  formatIgnoredEvidence,
+  acknowledgeGovernanceSignals,
   registerGovernanceSignal,
+  resetGovernanceCounters,
   type GovernanceCounters,
   type DetectionState,
 } from "../lib/detection.js"
@@ -155,6 +161,45 @@ export function createSoftGovernanceHook(
       // Increment turn count for every tool call
       let newState = incrementTurnCount(state)
       let counters: GovernanceCounters = newState.metrics.governance_counters
+      const prerequisitesCompleted = Boolean(
+        newState.hierarchy.trajectory &&
+        newState.hierarchy.tactic &&
+        newState.hierarchy.action
+      )
+      counters = {
+        ...counters,
+        prerequisites_completed: prerequisitesCompleted,
+      }
+
+      if (input.tool === "map_context" || input.tool === "declare_intent") {
+        counters = acknowledgeGovernanceSignals(counters)
+      }
+
+      const hierarchyImpact =
+        !newState.hierarchy.trajectory || !newState.hierarchy.tactic
+          ? "high"
+          : !newState.hierarchy.action
+            ? "medium"
+            : "low"
+      const resetDecision = evaluateIgnoredResetPolicy({
+        counters,
+        prerequisitesCompleted,
+        missedStepCount: counters.out_of_order + counters.evidence_pressure,
+        hierarchyImpact,
+      })
+      if (resetDecision.fullReset) {
+        counters = resetGovernanceCounters(counters, {
+          full: true,
+          prerequisitesCompleted,
+        })
+      } else if (resetDecision.downgrade) {
+        counters = {
+          ...counters,
+          ignored: Math.max(0, counters.ignored - resetDecision.decrementBy),
+          acknowledged: false,
+          prerequisites_completed: prerequisitesCompleted,
+        }
+      }
 
       // Check for drift (high turns without context update)
       const driftWarning = newState.metrics.turn_count >= config.max_turns_before_warning &&
@@ -271,12 +316,28 @@ export function createSoftGovernanceHook(
         })
       }
 
-      const ignoredCount = counters.out_of_order + counters.drift + counters.evidence_pressure
-      if (ignoredCount >= 10 && config.governance_mode !== "permissive") {
+      const ignoredTier = compileIgnoredTier({
+        counters,
+        governanceMode: config.governance_mode,
+        expertLevel: config.agent_behavior.expert_level,
+        evidence: {
+          declaredOrder: "declare_intent -> map_context(tactic) -> map_context(action) -> execution",
+          actualOrder: `turn ${newState.metrics.turn_count}: ${input.tool}`,
+          missingPrerequisites: [
+            ...(newState.hierarchy.trajectory ? [] : ["trajectory"]),
+            ...(newState.hierarchy.tactic ? [] : ["tactic"]),
+            ...(newState.hierarchy.action ? [] : ["action"]),
+          ],
+          expectedHierarchy: "trajectory -> tactic -> action",
+          actualHierarchy: `trajectory=${newState.hierarchy.trajectory || "(empty)"}, tactic=${newState.hierarchy.tactic || "(empty)"}, action=${newState.hierarchy.action || "(empty)"}`,
+        },
+      })
+
+      if (ignoredTier) {
         const actionLabel = getActiveActionLabel(newState)
         const triage = buildIgnoredTriageMessage(
           config.language,
-          "10+ unacknowledged governance cycles",
+          `IGNORED tier: ${computeUnacknowledgedCycles(counters)} unacknowledged governance cycles (${ignoredTier.tone})`,
           actionLabel,
         )
         counters = registerGovernanceSignal(counters, "ignored")
@@ -285,6 +346,7 @@ export function createSoftGovernanceHook(
           message: triage,
           variant: "error",
         })
+        await log.warn(`IGNORED evidence: ${formatIgnoredEvidence(ignoredTier.evidence)}`)
       }
 
       newState = {

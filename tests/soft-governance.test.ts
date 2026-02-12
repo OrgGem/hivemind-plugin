@@ -676,14 +676,80 @@ async function test_ignoredToastUsesErrorTriageFormat() {
     project: { id: "test", worktree: dir, time: { created: Date.now() } } as any,
   })
 
-  const hook = createSoftGovernanceHook(noopLogger, dir, config)
+  const log = createCollectingLogger()
+  const hook = createSoftGovernanceHook(log, dir, config)
   await hook(makeInput("write"), makeOutput())
 
   const triageToast = toasts.find(t => t.message.includes("Reason:") && t.message.includes("Current phase/action:") && t.message.includes("Suggested fix:"))
   assert(!!triageToast, "ignored toast includes triage reason/action/fix format")
   assert(triageToast?.variant === "error", "ignored toast variant is error")
+  assert(
+    log.warnings.some((entry) => entry.includes("[SEQ]") && entry.includes("[PLAN]") && entry.includes("[HIER]")),
+    "ignored escalation logs compact tri-evidence block"
+  )
 
   resetSdkContext()
+  await cleanup()
+}
+
+async function test_ignored_downgrades_after_acknowledgement() {
+  process.stderr.write("\n--- soft-governance: ignored downgrade after acknowledgement ---\n")
+  const dir = await setup()
+  const config = createConfig({ governance_mode: "strict" })
+  await saveConfig(dir, config)
+
+  const sm = createStateManager(dir)
+  const state = createBrainState(generateSessionId(), config)
+  state.metrics.governance_counters = {
+    out_of_order: 2,
+    drift: 2,
+    compaction: 0,
+    evidence_pressure: 2,
+    ignored: 4,
+    acknowledged: true,
+    prerequisites_completed: false,
+  }
+  await sm.save(state)
+
+  const hook = createSoftGovernanceHook(noopLogger, dir, config)
+  await hook(makeInput("read"), makeOutput())
+
+  const updated = await sm.load()
+  assert(updated!.metrics.governance_counters.ignored === 3, "acknowledgement downgrades ignored counter when prerequisites incomplete")
+  assert(updated!.metrics.governance_counters.acknowledged === false, "acknowledgement consumed after downgrade")
+
+  await cleanup()
+}
+
+async function test_ignored_full_reset_when_prerequisites_complete() {
+  process.stderr.write("\n--- soft-governance: ignored full reset when prerequisites complete ---\n")
+  const dir = await setup()
+  const config = createConfig({ governance_mode: "strict" })
+  await saveConfig(dir, config)
+
+  const sm = createStateManager(dir)
+  const state = createBrainState(generateSessionId(), config)
+  state.hierarchy.trajectory = "T"
+  state.hierarchy.tactic = "K"
+  state.hierarchy.action = "A"
+  state.metrics.governance_counters = {
+    out_of_order: 1,
+    drift: 0,
+    compaction: 0,
+    evidence_pressure: 0,
+    ignored: 5,
+    acknowledged: true,
+    prerequisites_completed: true,
+  }
+  await sm.save(state)
+
+  const hook = createSoftGovernanceHook(noopLogger, dir, config)
+  await hook(makeInput("read"), makeOutput())
+
+  const updated = await sm.load()
+  assert(updated!.metrics.governance_counters.ignored === 0, "ignored counter fully resets after prerequisites complete")
+  assert(updated!.metrics.governance_counters.prerequisites_completed === true, "prerequisites flag remains true after reset")
+
   await cleanup()
 }
 
@@ -714,6 +780,8 @@ async function main() {
   await test_outOfOrderToastSeverityProgression()
   await test_evidencePressureEscalatesWarningToError()
   await test_ignoredToastUsesErrorTriageFormat()
+  await test_ignored_downgrades_after_acknowledgement()
+  await test_ignored_full_reset_when_prerequisites_complete()
 
   process.stderr.write(`\n=== Soft Governance: ${passed} passed, ${failed_} failed ===\n`)
   if (failed_ > 0) process.exit(1)
