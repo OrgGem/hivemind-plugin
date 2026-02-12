@@ -48,14 +48,17 @@ import {
   createSoftGovernanceHook,
   createToolGateHook,
   createCompactionHook,
+  createEventHandler,
 } from "./hooks/index.js"
 import { createLogger } from "./lib/logging.js"
 import { loadConfig } from "./lib/persistence.js"
+import { initSdkContext } from "./hooks/sdk-context.js"
 
 /**
  * HiveMind plugin entry point.
  *
  * Initializes governance layer with:
+ *   - SDK context (client, BunShell, serverUrl, project)
  *   - Session lifecycle hook (system prompt injection)
  *   - Soft governance hook (tracking + violation detection)
  *   - 14 context management tools
@@ -63,8 +66,17 @@ import { loadConfig } from "./lib/persistence.js"
 export const HiveMindPlugin: Plugin = async ({
   directory,
   worktree,
+  client,
+  $: shell,
+  serverUrl,
+  project,
 }) => {
   const effectiveDir = worktree || directory
+
+  // Store SDK refs in module singleton — NEVER call client.* here (deadlock risk)
+  // Hooks and tools access via getClient() at execution time
+  initSdkContext({ client, $: shell, serverUrl, project })
+
   const log = await createLogger(effectiveDir, "HiveMind")
 
    await log.info(`Initializing HiveMind in ${effectiveDir}`)
@@ -76,8 +88,17 @@ export const HiveMindPlugin: Plugin = async ({
   await log.info(
     `HiveMind initialized: mode=${initConfig.governance_mode}, maxTurns=${initConfig.max_turns_before_warning}`
   )
+  await log.info(
+    `SDK context: client=${!!client}, shell=${!!shell}, serverUrl=${serverUrl?.href ?? 'none'}`
+  )
 
   return {
+    /**
+     * Hook: Event-driven governance
+     * Handles session.created, session.idle, session.compacted, file.edited, session.diff
+     */
+    event: createEventHandler(log, effectiveDir),
+
     /**
      * Custom tools for session governance
      */

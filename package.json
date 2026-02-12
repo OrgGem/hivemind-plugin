@@ -1,6 +1,6 @@
 {
   "name": "hivemind-context-governance",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "description": "Context-Aware Governance Layer for OpenCode - prevents drift and manages session state across lifecycles",
   "type": "module",
   "main": "dist/index.js",
@@ -37,7 +37,8 @@
     "build": "npm run clean && tsc && chmod +x dist/cli.js",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/**/*.test.ts",
+    "lint:boundary": "bash scripts/check-sdk-boundary.sh",
+    "test": "bash scripts/check-sdk-boundary.sh && tsx --test tests/**/*.test.ts",
     "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "keywords": [
@@ -58,6 +59,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@clack/prompts": "^1.0.0",
     "yaml": "^2.3.4"
   },
   "devDependencies": {
@@ -67,11 +69,19 @@
     "typescript": "^5.3.0"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.1.0"
+    "@opencode-ai/plugin": ">=1.1.0",
+    "ink": ">=5.0.0",
+    "react": ">=18.0.0"
   },
   "peerDependenciesMeta": {
     "@opencode-ai/plugin": {
       "optional": false
+    },
+    "ink": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
     }
   }
 }

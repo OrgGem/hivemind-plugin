@@ -63,6 +63,60 @@ export interface EscalatedSignal extends DetectionSignal {
   counter_excuse?: string;
 }
 
+export type GovernanceSignalKind =
+  | "out_of_order"
+  | "drift"
+  | "compaction"
+  | "evidence_pressure"
+  | "ignored";
+
+export type GovernanceSeverity = "info" | "warning" | "error";
+
+export interface SeriousnessInputs {
+  declaredIntentMismatch: boolean;
+  hierarchyMismatch: boolean;
+  roleMetadataMismatch: boolean;
+}
+
+export interface SeriousnessScore {
+  score: number;
+  tier: "low" | "medium" | "high";
+}
+
+export interface GovernanceCounters {
+  out_of_order: number;
+  drift: number;
+  compaction: number;
+  evidence_pressure: number;
+  ignored: number;
+  acknowledged: boolean;
+  prerequisites_completed: boolean;
+}
+
+export type HierarchyImpact = "low" | "medium" | "high";
+
+export interface IgnoredEvidenceInput {
+  declaredOrder: string;
+  actualOrder: string;
+  missingPrerequisites: string[];
+  expectedHierarchy: string;
+  actualHierarchy: string;
+}
+
+export interface IgnoredTierResult {
+  tier: "IGNORED";
+  severity: GovernanceSeverity;
+  unacknowledgedCycles: number;
+  tone: string;
+  evidence: IgnoredEvidenceInput;
+}
+
+export interface IgnoredResetDecision {
+  downgrade: boolean;
+  fullReset: boolean;
+  decrementBy: number;
+}
+
 /** Thresholds for signal detection */
 export interface DetectionThresholds {
   /** Turns before warning (default: 5) */
@@ -100,6 +154,181 @@ export function createDetectionState(): DetectionState {
     last_section_content: "",
     tool_type_counts: { read: 0, write: 0, query: 0, governance: 0 },
     keyword_flags: [],
+  };
+}
+
+export function createGovernanceCounters(): GovernanceCounters {
+  return {
+    out_of_order: 0,
+    drift: 0,
+    compaction: 0,
+    evidence_pressure: 0,
+    ignored: 0,
+    acknowledged: false,
+    prerequisites_completed: false,
+  };
+}
+
+export function computeViolationSeriousness(
+  inputs: SeriousnessInputs
+): SeriousnessScore {
+  let score = 0;
+  if (inputs.declaredIntentMismatch) score += 40;
+  if (inputs.hierarchyMismatch) score += 35;
+  if (inputs.roleMetadataMismatch) score += 25;
+
+  const tier = score >= 70 ? "high" : score >= 35 ? "medium" : "low";
+  return { score, tier };
+}
+
+export function computeGovernanceSeverity(opts: {
+  kind: GovernanceSignalKind;
+  repetitionCount: number;
+  acknowledged?: boolean;
+}): GovernanceSeverity {
+  const effectiveCount =
+    opts.acknowledged && opts.repetitionCount > 0
+      ? opts.repetitionCount - 1
+      : opts.repetitionCount;
+
+  if (opts.kind === "ignored") return "error";
+  if (opts.kind === "compaction") return "info";
+
+  if (opts.kind === "out_of_order") {
+    if (effectiveCount <= 0) return "info";
+    if (effectiveCount === 1) return "warning";
+    return "error";
+  }
+
+  if (effectiveCount <= 0) return "warning";
+  return "error";
+}
+
+export function computeUnacknowledgedCycles(counters: GovernanceCounters): number {
+  return counters.out_of_order + counters.drift + counters.evidence_pressure;
+}
+
+function getIgnoredTone(opts: {
+  governanceMode: "permissive" | "assisted" | "strict";
+  expertLevel: "beginner" | "intermediate" | "advanced" | "expert";
+}): string {
+  if (opts.governanceMode === "strict") {
+    if (opts.expertLevel === "beginner") return "direct corrective";
+    if (opts.expertLevel === "advanced" || opts.expertLevel === "expert") {
+      return "confrontational corrective";
+    }
+    return "firm corrective";
+  }
+
+  if (opts.governanceMode === "assisted") {
+    if (opts.expertLevel === "beginner") return "guided corrective";
+    return "firm coaching";
+  }
+
+  return "advisory";
+}
+
+export function compileIgnoredTier(opts: {
+  counters: GovernanceCounters;
+  governanceMode: "permissive" | "assisted" | "strict";
+  expertLevel: "beginner" | "intermediate" | "advanced" | "expert";
+  evidence: IgnoredEvidenceInput;
+}): IgnoredTierResult | null {
+  const unacknowledgedCycles = computeUnacknowledgedCycles(opts.counters);
+  if (unacknowledgedCycles < 10) return null;
+  if (opts.counters.acknowledged) return null;
+  if (opts.governanceMode === "permissive") return null;
+
+  return {
+    tier: "IGNORED",
+    severity: "error",
+    unacknowledgedCycles,
+    tone: getIgnoredTone({
+      governanceMode: opts.governanceMode,
+      expertLevel: opts.expertLevel,
+    }),
+    evidence: opts.evidence,
+  };
+}
+
+export function formatIgnoredEvidence(evidence: IgnoredEvidenceInput): string {
+  const missing =
+    evidence.missingPrerequisites.length > 0
+      ? evidence.missingPrerequisites.join(", ")
+      : "none";
+  return `[SEQ] ${evidence.declaredOrder} -> ${evidence.actualOrder} | [PLAN] missing: ${missing} | [HIER] expected=${evidence.expectedHierarchy}; actual=${evidence.actualHierarchy}`;
+}
+
+export function evaluateIgnoredResetPolicy(opts: {
+  counters: GovernanceCounters;
+  prerequisitesCompleted: boolean;
+  missedStepCount: number;
+  hierarchyImpact: HierarchyImpact;
+}): IgnoredResetDecision {
+  if (!opts.counters.acknowledged) {
+    return { downgrade: false, fullReset: false, decrementBy: 0 };
+  }
+
+  if (
+    opts.prerequisitesCompleted &&
+    opts.missedStepCount <= 1 &&
+    opts.hierarchyImpact === "low"
+  ) {
+    return { downgrade: false, fullReset: true, decrementBy: opts.counters.ignored };
+  }
+
+  const decrementBy =
+    opts.hierarchyImpact === "low"
+      ? 3
+      : opts.hierarchyImpact === "medium"
+        ? 2
+        : 1;
+
+  return { downgrade: true, fullReset: false, decrementBy };
+}
+
+export function registerGovernanceSignal(
+  counters: GovernanceCounters,
+  kind: GovernanceSignalKind
+): GovernanceCounters {
+  return {
+    ...counters,
+    [kind]: counters[kind] + 1,
+    acknowledged: false,
+  };
+}
+
+export function acknowledgeGovernanceSignals(
+  counters: GovernanceCounters
+): GovernanceCounters {
+  return {
+    ...counters,
+    acknowledged: true,
+  };
+}
+
+export function resetGovernanceCounters(
+  counters: GovernanceCounters,
+  opts: { full: boolean; prerequisitesCompleted: boolean }
+): GovernanceCounters {
+  if (!opts.full) {
+    return {
+      ...counters,
+      acknowledged: false,
+    };
+  }
+
+  if (!opts.prerequisitesCompleted) {
+    return {
+      ...counters,
+      prerequisites_completed: false,
+      acknowledged: false,
+    };
+  }
+
+  return {
+    ...createGovernanceCounters(),
+    prerequisites_completed: true,
   };
 }
 

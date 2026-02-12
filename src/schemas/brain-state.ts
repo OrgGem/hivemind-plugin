@@ -5,6 +5,7 @@
 
 import type { HiveMindConfig, GovernanceMode } from "./config.js";
 import type { HierarchyState } from "./hierarchy.js";
+import type { GovernanceCounters } from "../lib/detection.js";
 
 export type SessionMode = "plan_driven" | "quick_fix" | "exploration";
 export type GovernanceStatus = "LOCKED" | "OPEN";
@@ -58,6 +59,8 @@ export interface MetricsState {
   keyword_flags: string[];               // detected keywords this session
   /** Count of file writes without prior read this session */
   write_without_read_count: number;
+  /** Governance escalation/reset counters for severity routing */
+  governance_counters: GovernanceCounters;
 }
 
 /** Captured subagent cycle result (auto-captured by tool.execute.after) */
@@ -106,6 +109,18 @@ export interface BrainState {
   cycle_log: CycleLogEntry[];
   /** True when a subagent reported failure and agent hasn't acknowledged it */
   pending_failure_ack: boolean;
+  /** Framework conflict selection metadata for dual-framework projects */
+  framework_selection: FrameworkSelectionState;
+}
+
+export type FrameworkChoice = "gsd" | "spec-kit" | "override" | "cancel" | null;
+
+export interface FrameworkSelectionState {
+  choice: FrameworkChoice;
+  active_phase: string;
+  active_spec_path: string;
+  acceptance_note: string;
+  updated_at: number;
 }
 
 export const BRAIN_STATE_VERSION = "1.0.0";
@@ -158,6 +173,15 @@ export function createBrainState(
       tool_type_counts: { read: 0, write: 0, query: 0, governance: 0 },
       keyword_flags: [],
       write_without_read_count: 0,
+      governance_counters: {
+        out_of_order: 0,
+        drift: 0,
+        compaction: 0,
+        evidence_pressure: 0,
+        ignored: 0,
+        acknowledged: false,
+        prerequisites_completed: false,
+      },
     },
     complexity_nudge_shown: false,
     last_commit_suggestion_turn: 0,
@@ -169,6 +193,13 @@ export function createBrainState(
     // Cycle intelligence fields
     cycle_log: [],
     pending_failure_ack: false,
+    framework_selection: {
+      choice: null,
+      active_phase: "",
+      active_spec_path: "",
+      acceptance_note: "",
+      updated_at: 0,
+    },
   };
 }
 
@@ -366,4 +397,3 @@ export function clearPendingFailureAck(state: BrainState): BrainState {
     pending_failure_ack: false,
   };
 }
-
