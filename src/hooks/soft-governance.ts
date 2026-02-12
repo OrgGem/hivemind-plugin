@@ -25,6 +25,7 @@ import { addViolationCount, incrementTurnCount, setLastCommitSuggestionTurn, add
 import { detectChainBreaks } from "../lib/chain-analysis.js"
 import { shouldSuggestCommit } from "../lib/commit-advisor.js"
 import { detectLongSession } from "../lib/long-session.js"
+import { getClient } from "./sdk-context.js"
 import {
   classifyTool,
   incrementToolType,
@@ -32,8 +33,86 @@ import {
   scanForKeywords,
   addKeywordFlags,
   createDetectionState,
+  computeGovernanceSeverity,
+  registerGovernanceSignal,
+  type GovernanceCounters,
   type DetectionState,
 } from "../lib/detection.js"
+
+const TOAST_COOLDOWN_MS = 30_000
+const lastToastAt = new Map<string, number>()
+
+type ToastVariant = "info" | "warning" | "error"
+
+function localize(language: "en" | "vi", en: string, vi: string): string {
+  return language === "vi" ? vi : en
+}
+
+function variantFromSeverity(severity: "info" | "warning" | "error"): ToastVariant {
+  return severity
+}
+
+function shouldEmitToast(key: string, now: number): boolean {
+  const last = lastToastAt.get(key)
+  if (last !== undefined && now - last < TOAST_COOLDOWN_MS) {
+    return false
+  }
+  return true
+}
+
+export function resetToastCooldowns(): void {
+  lastToastAt.clear()
+}
+
+export async function emitGovernanceToast(
+  log: Logger,
+  opts: {
+    key: string
+    message: string
+    variant: ToastVariant
+    now?: number
+  },
+): Promise<boolean> {
+  const now = opts.now ?? Date.now()
+  if (!shouldEmitToast(opts.key, now)) {
+    return false
+  }
+
+  const client = getClient()
+  if (!client?.tui?.showToast) {
+    await log.debug(`Toast skipped (no SDK client): ${opts.key}`)
+    return false
+  }
+
+  try {
+    await client.tui.showToast({
+      body: {
+        message: opts.message,
+        variant: opts.variant,
+      },
+    })
+    lastToastAt.set(opts.key, now)
+    return true
+  } catch (error: unknown) {
+    await log.warn(`Toast dispatch failed for ${opts.key}: ${error}`)
+    return false
+  }
+}
+
+function buildIgnoredTriageMessage(language: "en" | "vi", reason: string, action: string): string {
+  return localize(
+    language,
+    `Reason: ${reason} | Current phase/action: ${action} | Suggested fix: map_context({ level: \"action\", content: \"<next action>\" })`,
+    `Ly do: ${reason} | Current phase/action: ${action} | Lenh goi y: map_context({ level: \"action\", content: \"<hanh dong tiep theo>\" })`,
+  )
+}
+
+function getActiveActionLabel(state: any): string {
+  if (state.hierarchy.action) return state.hierarchy.action
+  if (state.hierarchy.tactic) return state.hierarchy.tactic
+  if (state.hierarchy.trajectory) return state.hierarchy.trajectory
+  return "(none)"
+}
 
 /**
  * Creates the soft governance hook for tool execution tracking.
@@ -75,6 +154,7 @@ export function createSoftGovernanceHook(
 
       // Increment turn count for every tool call
       let newState = incrementTurnCount(state)
+      let counters: GovernanceCounters = newState.metrics.governance_counters
 
       // Check for drift (high turns without context update)
       const driftWarning = newState.metrics.turn_count >= config.max_turns_before_warning &&
@@ -143,9 +223,76 @@ export function createSoftGovernanceHook(
       if (isIgnoredTool && state.session.governance_status === "LOCKED") {
         // Agent is trying to use tools when session is LOCKED
         newState = addViolationCount(newState)
+        const repetitionCount = counters.out_of_order
+        counters = registerGovernanceSignal(counters, "out_of_order")
+        const severity = computeGovernanceSeverity({
+          kind: "out_of_order",
+          repetitionCount,
+          acknowledged: counters.acknowledged,
+        })
+
+        const outOfOrderMessage = localize(
+          config.language,
+          `Tool ${input.tool} used before prerequisites. Call declare_intent first, then continue.`,
+          `Da dung tool ${input.tool} truoc prerequisite. Goi declare_intent truoc roi tiep tuc.`,
+        )
+        await emitGovernanceToast(log, {
+          key: `out_of_order:${input.tool}:${severity}`,
+          message: outOfOrderMessage,
+          variant: variantFromSeverity(severity),
+        })
+
         await log.warn(
           `Governance violation: tool '${input.tool}' used in LOCKED session. Violation count: ${newState.metrics.violation_count}`
         )
+      }
+
+      const hasEvidencePressure =
+        detection.keyword_flags.length > 0 ||
+        detection.consecutive_failures > 0
+      if (hasEvidencePressure && config.governance_mode !== "permissive") {
+        const repetitionCount = counters.evidence_pressure
+        counters = registerGovernanceSignal(counters, "evidence_pressure")
+        const severity = computeGovernanceSeverity({
+          kind: "evidence_pressure",
+          repetitionCount,
+          acknowledged: counters.acknowledged,
+        })
+
+        const evidenceMessage = localize(
+          config.language,
+          `Evidence pressure active. Use think_back and verify before next claim.`,
+          `Evidence pressure dang bat. Dung think_back va xac minh truoc khi ket luan tiep.`,
+        )
+        await emitGovernanceToast(log, {
+          key: `evidence_pressure:${severity}`,
+          message: evidenceMessage,
+          variant: variantFromSeverity(severity),
+        })
+      }
+
+      const ignoredCount = counters.out_of_order + counters.drift + counters.evidence_pressure
+      if (ignoredCount >= 10 && config.governance_mode !== "permissive") {
+        const actionLabel = getActiveActionLabel(newState)
+        const triage = buildIgnoredTriageMessage(
+          config.language,
+          "10+ unacknowledged governance cycles",
+          actionLabel,
+        )
+        counters = registerGovernanceSignal(counters, "ignored")
+        await emitGovernanceToast(log, {
+          key: "ignored:triage:error",
+          message: triage,
+          variant: "error",
+        })
+      }
+
+      newState = {
+        ...newState,
+        metrics: {
+          ...newState.metrics,
+          governance_counters: counters,
+        },
       }
 
       // Track tool call health (success rate)

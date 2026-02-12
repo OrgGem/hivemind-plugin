@@ -5,7 +5,7 @@
  */
 
 import { initProject } from "../src/cli/init.js"
-import { createStateManager } from "../src/lib/persistence.js"
+import { createStateManager, loadConfig, saveConfig } from "../src/lib/persistence.js"
 import { readActiveMd, listArchives } from "../src/lib/planning-fs.js"
 import { readFile } from "fs/promises"
 import { createDeclareIntentTool } from "../src/tools/declare-intent.js"
@@ -17,16 +17,17 @@ import { createThinkBackTool } from "../src/tools/think-back.js"
 import { createCheckDriftTool } from "../src/tools/check-drift.js"
 import { createCompactionHook } from "../src/hooks/compaction.js"
 import { createSessionLifecycleHook } from "../src/hooks/session-lifecycle.js"
+import { createToolGateHookInternal } from "../src/hooks/tool-gate.js"
 import { createEventHandler } from "../src/hooks/event-handler.js"
 import { initSdkContext, resetSdkContext } from "../src/hooks/sdk-context.js"
 import { createLogger } from "../src/lib/logging.js"
-import { loadConfig } from "../src/lib/persistence.js"
+import { createConfig } from "../src/schemas/config.js"
 import { loadAnchors, saveAnchors, addAnchor } from "../src/lib/anchors.js"
 import { loadMems } from "../src/lib/mems.js"
 import { createSaveMemTool } from "../src/tools/save-mem.js"
 import { createListShelvesTool } from "../src/tools/list-shelves.js"
 import { createRecallMemsTool } from "../src/tools/recall-mems.js"
-import { mkdtemp, rm, readdir } from "fs/promises"
+import { mkdtemp, rm, readdir, mkdir, writeFile } from "fs/promises"
 import { tmpdir } from "os"
 import { join } from "path"
 
@@ -1458,6 +1459,106 @@ async function test_languageRoutingKeepsToolNamesEnglish() {
   }
 }
 
+async function test_frameworkConflictPinsGoalAndSelectionMenu() {
+  process.stderr.write("\n--- round6: framework conflict pins goal and menu in prompt ---\n")
+
+  const dir = await setup()
+
+  try {
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+
+    await mkdir(join(dir, ".planning"), { recursive: true })
+    await mkdir(join(dir, ".spec-kit"), { recursive: true })
+    await writeFile(
+      join(dir, ".planning", "STATE.md"),
+      "# State\n\n## Current Position\n\nPhase 2 of 6 | Plan 1 of 4 complete | Status: In Progress\n",
+      "utf-8"
+    )
+    await writeFile(
+      join(dir, ".planning", "ROADMAP.md"),
+      "# Roadmap\n\n## Phase 2: Auto-Hooks\n**Goal:** Governance fires from turn 0 in every mode\n",
+      "utf-8"
+    )
+
+    const config = await loadConfig(dir)
+    const logger = await createLogger(dir, "test")
+    const hook = createSessionLifecycleHook(logger, dir, config)
+    const output = { system: [] as string[] }
+    await hook({ sessionID: "test-session" }, output)
+
+    const systemText = output.system.join("\n")
+    assert(
+      systemText.includes("Pinned GSD goal: Governance fires from turn 0 in every mode"),
+      "session prompt pins active gsd phase goal"
+    )
+    assert(
+      systemText.includes("Use GSD") && systemText.includes("Use Spec-kit") && systemText.includes("acceptance_note"),
+      "session prompt includes locked framework selection menu metadata"
+    )
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_frameworkConflictLimitedModeAllowsOnlyPlanningReads() {
+  process.stderr.write("\n--- round6: framework limited mode gating ---\n")
+
+  const dir = await setup()
+
+  try {
+    await initProject(dir, { governanceMode: "strict", language: "en", silent: true })
+
+    await mkdir(join(dir, ".planning"), { recursive: true })
+    await mkdir(join(dir, ".spec-kit"), { recursive: true })
+    await writeFile(
+      join(dir, ".planning", "STATE.md"),
+      "# State\n\n## Current Position\n\nPhase 2 of 6 | Plan 1 of 4 complete | Status: In Progress\n",
+      "utf-8"
+    )
+    await writeFile(
+      join(dir, ".planning", "ROADMAP.md"),
+      "# Roadmap\n\n## Phase 2: Auto-Hooks\n**Goal:** Governance fires from turn 0 in every mode\n",
+      "utf-8"
+    )
+
+    const config = createConfig({
+      governance_mode: "strict",
+      automation_level: "assisted",
+    })
+    await saveConfig(dir, config)
+
+    const stateManager = createStateManager(dir)
+    const state = await stateManager.load()
+    if (!state) {
+      throw new Error("state missing")
+    }
+    state.session.governance_status = "OPEN"
+    await stateManager.save(state)
+
+    const gate = createToolGateHookInternal(await createLogger(dir, "test"), dir, config)
+    const blocked = await gate({ sessionID: "test-session", tool: "write" })
+    assert(!blocked.allowed, "write is blocked in limited mode without framework selection")
+    assert(
+      blocked.error?.includes("read/search/planning only") === true,
+      "limited mode message includes read/search/planning only"
+    )
+
+    const updated = await stateManager.load()
+    if (!updated) {
+      throw new Error("updated state missing")
+    }
+    updated.framework_selection.choice = "gsd"
+    updated.framework_selection.active_phase = "02"
+    updated.framework_selection.updated_at = Date.now()
+    await stateManager.save(updated)
+
+    const allowed = await gate({ sessionID: "test-session", tool: "write" })
+    assert(allowed.allowed, "write allowed after framework selection metadata is provided")
+  } finally {
+    await cleanup()
+  }
+}
+
 async function test_eventIdleEmitsStaleAndCompactionToasts() {
   process.stderr.write("\n--- round5: session.idle drives stale toasts and compaction stays info ---\n")
 
@@ -1514,6 +1615,50 @@ async function test_eventIdleEmitsStaleAndCompactionToasts() {
   }
 }
 
+async function test_compactionHookEmitsInfoToastOnly() {
+  process.stderr.write("\n--- round5: compaction hook emits info toast ---\n")
+
+  const dir = await setup()
+
+  try {
+    await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
+    const declareIntentTool = createDeclareIntentTool(dir)
+    await declareIntentTool.execute(
+      { mode: "plan_driven", focus: "Compaction toast test" }
+    )
+
+    const toasts: Array<{ message: string; variant: string }> = []
+    initSdkContext({
+      client: {
+        tui: {
+          showToast: async ({ body }: any) => {
+            toasts.push({ message: body.message, variant: body.variant })
+          },
+        },
+      } as any,
+      $: (() => {}) as any,
+      serverUrl: new URL("http://localhost:3000"),
+      project: { id: "test", worktree: dir, time: { created: Date.now() } } as any,
+    })
+
+    const hook = createCompactionHook(await createLogger(dir, "test"), dir)
+    const output = { context: [] as string[] }
+    await hook({ sessionID: "session-a" }, output)
+
+    assert(
+      toasts.some(t => t.variant === "info" && t.message.includes("Compaction context injected")),
+      "compaction hook emits info toast"
+    )
+    assert(
+      !toasts.some(t => t.variant === "warning" || t.variant === "error"),
+      "compaction hook does not escalate beyond info"
+    )
+  } finally {
+    resetSdkContext()
+    await cleanup()
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1551,7 +1696,10 @@ async function main() {
   await test_bootstrapBlockAppearsInPermissiveModeTurn0()
   await test_permissiveModeSuppressesDetectionPressureButKeepsNavigation()
   await test_languageRoutingKeepsToolNamesEnglish()
+  await test_frameworkConflictPinsGoalAndSelectionMenu()
+  await test_frameworkConflictLimitedModeAllowsOnlyPlanningReads()
   await test_eventIdleEmitsStaleAndCompactionToasts()
+  await test_compactionHookEmitsInfoToastOnly()
 
   process.stderr.write(`\n=== Integration: ${passed} passed, ${failed_} failed ===\n`)
   process.exit(failed_ > 0 ? 1 : 0)

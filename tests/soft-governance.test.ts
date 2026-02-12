@@ -12,7 +12,8 @@
  *   - Error resilience (never crashes)
  */
 
-import { createSoftGovernanceHook } from "../src/hooks/soft-governance.js"
+import { createSoftGovernanceHook, resetToastCooldowns } from "../src/hooks/soft-governance.js"
+import { initSdkContext, resetSdkContext } from "../src/hooks/sdk-context.js"
 import { createStateManager, saveConfig } from "../src/lib/persistence.js"
 import { createConfig } from "../src/schemas/config.js"
 import {
@@ -565,6 +566,127 @@ async function test_permissive_still_tracks() {
   await cleanup()
 }
 
+// ─── Toast adapter: severity progression + triage ─────────────────────
+
+async function test_outOfOrderToastSeverityProgression() {
+  process.stderr.write("\n--- soft-governance: out-of-order toast severity progression ---\n")
+  const dir = await setup()
+  const config = createConfig({ governance_mode: "strict" })
+  await saveConfig(dir, config)
+
+  const sm = createStateManager(dir)
+  const state = createBrainState(generateSessionId(), config) // LOCKED
+  await sm.save(state)
+  resetToastCooldowns()
+
+  const toasts: Array<{ message: string; variant: string }> = []
+  initSdkContext({
+    client: {
+      tui: {
+        showToast: async ({ body }: any) => {
+          toasts.push({ message: body.message, variant: body.variant })
+        },
+      },
+    } as any,
+    $: (() => {}) as any,
+    serverUrl: new URL("http://localhost:3000"),
+    project: { id: "test", worktree: dir, time: { created: Date.now() } } as any,
+  })
+
+  const hook = createSoftGovernanceHook(noopLogger, dir, config)
+  await hook(makeInput("write"), makeOutput())
+  await hook(makeInput("write"), makeOutput())
+  await hook(makeInput("write"), makeOutput())
+
+  assert(toasts.some(t => t.variant === "info"), "first out-of-order toast is info")
+  assert(toasts.some(t => t.variant === "warning"), "second out-of-order toast is warning")
+  assert(toasts.some(t => t.variant === "error"), "repeated out-of-order toast escalates to error")
+
+  resetSdkContext()
+  await cleanup()
+}
+
+async function test_evidencePressureEscalatesWarningToError() {
+  process.stderr.write("\n--- soft-governance: evidence-pressure escalation ---\n")
+  const dir = await setup()
+  const config = createConfig({ governance_mode: "assisted" })
+  await saveConfig(dir, config)
+
+  const sm = createStateManager(dir)
+  const state = unlockSession(createBrainState(generateSessionId(), config))
+  await sm.save(state)
+  resetToastCooldowns()
+
+  const toasts: Array<{ message: string; variant: string }> = []
+  initSdkContext({
+    client: {
+      tui: {
+        showToast: async ({ body }: any) => {
+          toasts.push({ message: body.message, variant: body.variant })
+        },
+      },
+    } as any,
+    $: (() => {}) as any,
+    serverUrl: new URL("http://localhost:3000"),
+    project: { id: "test", worktree: dir, time: { created: Date.now() } } as any,
+  })
+
+  const hook = createSoftGovernanceHook(noopLogger, dir, config)
+  const output = { title: "", output: "still stuck and retry", metadata: {} }
+  await hook(makeInput("read"), output)
+  await hook(makeInput("read"), output)
+
+  assert(
+    toasts.some(t => t.variant === "warning" && t.message.includes("Evidence pressure")),
+    "first evidence-pressure toast is warning"
+  )
+  assert(
+    toasts.some(t => t.variant === "error" && t.message.includes("Evidence pressure")),
+    "repeated evidence-pressure toast escalates to error"
+  )
+
+  resetSdkContext()
+  await cleanup()
+}
+
+async function test_ignoredToastUsesErrorTriageFormat() {
+  process.stderr.write("\n--- soft-governance: ignored triage toast format ---\n")
+  const dir = await setup()
+  const config = createConfig({ governance_mode: "strict" })
+  await saveConfig(dir, config)
+
+  const sm = createStateManager(dir)
+  const state = createBrainState(generateSessionId(), config)
+  state.metrics.governance_counters.out_of_order = 9
+  state.hierarchy.action = "Review governance routing"
+  await sm.save(state)
+  resetToastCooldowns()
+
+  const toasts: Array<{ message: string; variant: string }> = []
+  initSdkContext({
+    client: {
+      tui: {
+        showToast: async ({ body }: any) => {
+          toasts.push({ message: body.message, variant: body.variant })
+        },
+      },
+    } as any,
+    $: (() => {}) as any,
+    serverUrl: new URL("http://localhost:3000"),
+    project: { id: "test", worktree: dir, time: { created: Date.now() } } as any,
+  })
+
+  const hook = createSoftGovernanceHook(noopLogger, dir, config)
+  await hook(makeInput("write"), makeOutput())
+
+  const triageToast = toasts.find(t => t.message.includes("Reason:") && t.message.includes("Current phase/action:") && t.message.includes("Suggested fix:"))
+  assert(!!triageToast, "ignored toast includes triage reason/action/fix format")
+  assert(triageToast?.variant === "error", "ignored toast variant is error")
+
+  resetSdkContext()
+  await cleanup()
+}
+
 // ─── Runner ──────────────────────────────────────────────────────────
 
 async function main() {
@@ -589,6 +711,9 @@ async function main() {
   await test_multiple_violations_accumulate()
   await test_debug_logging()
   await test_permissive_still_tracks()
+  await test_outOfOrderToastSeverityProgression()
+  await test_evidencePressureEscalatesWarningToError()
+  await test_ignoredToastUsesErrorTriageFormat()
 
   process.stderr.write(`\n=== Soft Governance: ${passed} passed, ${failed_} failed ===\n`)
   if (failed_ > 0) process.exit(1)

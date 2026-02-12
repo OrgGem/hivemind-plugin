@@ -25,6 +25,7 @@ import {
   getAncestors,
   treeExists,
 } from "../lib/hierarchy-tree.js"
+import { emitGovernanceToast } from "./soft-governance.js"
 
 /** Budget in characters (~500 tokens at ~4 chars/token) */
 const INJECTION_BUDGET_CHARS = 2000
@@ -160,6 +161,12 @@ export function createCompactionHook(log: Logger, directory: string) {
       }
 
       output.context.push(context)
+
+      await emitGovernanceToast(log, {
+        key: "compaction:info",
+        message: "Compaction context injected. Continue from the preserved hierarchy path.",
+        variant: "info",
+      })
 
       await log.debug(`Compaction: injected ${context.length} chars`)
     } catch (error) {
