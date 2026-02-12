@@ -11,7 +11,7 @@
 | # | Phase | Mesh System | Status | Plans | Progress |
 |---|-------|-------------|--------|-------|----------|
 | 1 | SDK Foundation + System Core | Materialization Layer | ◐ | 0/2 | 0% |
-| 2 | Auto-Hooks & Governance Mesh | Triggers & Rules | ○ | 0/0 | 0% |
+| 2 | Auto-Hooks & Governance Mesh | Triggers & Rules | ◐ | 0/4 | 0% |
 | 3 | Session Management & Auto-Export | Lifecycle | ○ | 0/0 | 0% |
 | 4 | Unique Agent Tools | Hook-Activated Utilities | ○ | 0/0 | 0% |
 | 5 | The Mems Brain Enhanced | Shared Knowledge Repository | ○ | 0/0 | 0% |
@@ -61,7 +61,14 @@ Every other system needs the SDK client to materialize its concepts. Without `cl
 **Mesh System:** Triggers & Rules — the governance engine that watches everything
 **Goal:** Governance fires from turn 0 in every mode, framework-aware, event-driven, with visual feedback via showToast
 **Requirements:** GOV-01, GOV-02, GOV-03, GOV-04, GOV-05, GOV-06, GOV-07, GOV-08
+**Plans:** 4 plans
 **Status:** Not started
+
+Plans:
+- [ ] 02-01-PLAN.md — Turn-window bootstrap + permissive signal filtering (GOV-01..03)
+- [ ] 02-02-PLAN.md — Event-driven stale checks + governance toasts (GOV-04..05)
+- [ ] 02-03-PLAN.md — Framework detection + GSD phase-goal-aware drift context (GOV-06..07)
+- [ ] 02-04-PLAN.md — IGNORED escalation tier + 13-condition governance stress suite (GOV-08)
 
 ### Success Criteria
 
