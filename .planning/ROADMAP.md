@@ -23,21 +23,28 @@
 
 **Mesh System:** Materialization Layer — wiring the SDK client that gives all other systems their power
 **Goal:** Plugin uses full SDK surface (`client`, `$`, events) with graceful fallback. Core lib remains SDK-free.
-**Requirements:** SDK-01, SDK-02, SDK-03, SDK-04, SDK-05
-**Plans:** 2 plans
+**Requirements:** SDK-RESEARCH-01, SDK-01, SDK-02, SDK-03, SDK-04, SDK-05
+**Plans:** 2 plans + research task
 **Status:** Planned
 
 Plans:
+- [ ] 01-RESEARCH.md — TUI panel capability research (SDK-RESEARCH-01)
 - [ ] 01-01-PLAN.md — SDK context singleton + plugin entry wiring (Wave 1)
 - [ ] 01-02-PLAN.md — Event handler, boundary enforcement, tests (Wave 2)
 
+**Research Outcome Branches:**
+- **If panels supported:** Add 01-03-PLAN.md — Embedded TUI dashboard using OpenCode SDK panel APIs
+- **If panels NOT supported:** Document as v2 requirement, upgrade standalone TUI to OpenTUI (optional)
+
 ### Success Criteria
 
-1. Plugin entry destructures `client`, `$`, `serverUrl`, `project` from PluginInput alongside `directory` and `worktree`
-2. `event` hook receives and logs `session.created`, `session.idle`, `file.edited` events in dev mode
-3. `src/lib/` has zero `@opencode-ai` imports (verified by grep/lint rule)
-4. Plugin still functions fully (14 tools, 4 hooks) when SDK client is unavailable (graceful fallback)
-5. SDK client stored in module state (not during init) and accessible from all hooks and tools
+1. **Research complete:** SDK-RESEARCH-01 documents whether OpenCode SDK supports custom TUI panels
+2. Plugin entry destructures `client`, `$`, `serverUrl`, `project` from PluginInput alongside `directory` and `worktree`
+3. `event` hook receives and logs `session.created`, `session.idle`, `file.edited` events in dev mode
+4. `src/lib/` has zero `@opencode-ai` imports (verified by grep/lint rule)
+5. Plugin still functions fully (14 tools, 4 hooks) when SDK client is unavailable (graceful fallback)
+6. SDK client stored in module state (not during init) and accessible from all hooks and tools
+7. **If panels supported:** Embedded dashboard panel registered via SDK and displaying live session data
 
 ### Depends On
 
