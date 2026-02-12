@@ -72,6 +72,11 @@ function getFrameworkConflictLevel(config: HiveMindConfig): "warn-only" | "limit
   return "limited-mode"
 }
 
+function buildSimulatedBlockMessage(guidance: string, level: "limited-mode" | "simulated-pause", toolName: string): string {
+  const modeLabel = level === "simulated-pause" ? "SIMULATED PAUSE" : "LIMITED MODE"
+  return `${guidance} ${modeLabel}: execution is flagged as simulated block (no hard-deny). rollback guidance: if ${toolName} changed files, revert those edits after selecting framework metadata and rerun.`
+}
+
 export interface ToolGateResult {
   allowed: boolean
   error?: string
@@ -135,16 +140,12 @@ export function createToolGateHook(
           }
 
           if (!CONFLICT_SAFE_TOOLS.has(toolName)) {
-            if (conflictLevel === "limited-mode") {
+            if (conflictLevel === "limited-mode" || conflictLevel === "simulated-pause") {
+              const simulatedMessage = buildSimulatedBlockMessage(guidance, conflictLevel, toolName)
               return {
-                allowed: false,
-                error: `${guidance} Limited mode active: read/search/planning only.`,
+                allowed: true,
+                warning: simulatedMessage,
               }
-            }
-
-            return {
-              allowed: false,
-              error: `${guidance} Simulated pause active until framework selection is provided.`,
             }
           }
         }

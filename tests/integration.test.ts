@@ -1537,10 +1537,14 @@ async function test_frameworkConflictLimitedModeAllowsOnlyPlanningReads() {
 
     const gate = createToolGateHookInternal(await createLogger(dir, "test"), dir, config)
     const blocked = await gate({ sessionID: "test-session", tool: "write" })
-    assert(!blocked.allowed, "write is blocked in limited mode without framework selection")
+    assert(blocked.allowed, "write remains non-blocking in limited mode without framework selection")
     assert(
-      blocked.error?.includes("read/search/planning only") === true,
-      "limited mode message includes read/search/planning only"
+      blocked.warning?.includes("LIMITED MODE") === true,
+      "limited mode message includes simulated block marker"
+    )
+    assert(
+      blocked.warning?.includes("rollback guidance") === true,
+      "limited mode includes rollback guidance"
     )
 
     const updated = await stateManager.load()

@@ -238,6 +238,7 @@ export function createSessionLifecycleHook(
       // Build sections in priority order
       const statusLines: string[] = []
       const hierarchyLines: string[] = []
+      const ignoredLines: string[] = []
       const warningLines: string[] = []
       const frameworkLines: string[] = []
       const anchorLines: string[] = []
@@ -400,10 +401,10 @@ export function createSessionLifecycleHook(
         },
       })
       if (ignoredTier) {
-        warningLines.push(
+        ignoredLines.push(
           `[IGNORED] ${ignoredTier.unacknowledgedCycles} unacknowledged governance cycles. Tone: ${ignoredTier.tone}.`
         )
-        warningLines.push(`  ${formatIgnoredEvidence(ignoredTier.evidence)}`)
+        ignoredLines.push(`  ${formatIgnoredEvidence(ignoredTier.evidence)}`)
       }
 
       if (frameworkContext.mode === "gsd" && frameworkContext.gsdPhaseGoal && config.governance_mode !== "permissive") {
@@ -497,6 +498,7 @@ export function createSessionLifecycleHook(
         frameworkLines, // P0.8: framework context and conflict routing
         statusLines,    // P1: always
         hierarchyLines, // P2: always
+        ignoredLines,   // P2.5: IGNORED tri-evidence is non-negotiable
         warningLines,   // P3: if present
         anchorLines,    // P4: if present
         metricsLines,   // P5: if space

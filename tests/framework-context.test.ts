@@ -6,6 +6,12 @@ import {
   buildFrameworkSelectionMenu,
   extractCurrentGsdPhaseGoal,
 } from "../src/lib/framework-context.js"
+import { createToolGateHookInternal } from "../src/hooks/tool-gate.js"
+import { createConfig } from "../src/schemas/config.js"
+import { saveConfig, createStateManager } from "../src/lib/persistence.js"
+import { createBrainState, generateSessionId, unlockSession } from "../src/schemas/brain-state.js"
+import { initializePlanningDirectory } from "../src/lib/planning-fs.js"
+import { noopLogger } from "../src/lib/logging.js"
 
 let passed = 0
 let failed_ = 0
@@ -24,6 +30,7 @@ let tmpDir: string
 
 async function setup(): Promise<string> {
   tmpDir = await mkdtemp(join(tmpdir(), "hm-framework-"))
+  await initializePlanningDirectory(tmpDir)
   return tmpDir
 }
 
@@ -146,6 +153,56 @@ async function test_extract_goal_without_files() {
   }
 }
 
+async function test_framework_limited_mode_is_simulated_block() {
+  process.stderr.write("\n--- framework-context: limited mode simulated block with rollback guidance ---\n")
+  const dir = await setup()
+  try {
+    await writeGsdFiles(dir, "02")
+    await mkdir(join(dir, ".spec-kit"), { recursive: true })
+
+    const config = createConfig({ governance_mode: "strict", automation_level: "assisted" })
+    await saveConfig(dir, config)
+
+    const stateManager = createStateManager(dir)
+    const state = unlockSession(createBrainState(generateSessionId(), config))
+    await stateManager.save(state)
+
+    const gate = createToolGateHookInternal(noopLogger, dir, config)
+    const result = await gate({ sessionID: "test-session", tool: "write" })
+
+    assert(result.allowed, "limited mode remains non-blocking (simulated block only)")
+    assert(result.warning?.includes("LIMITED MODE") === true, "limited mode warning includes simulated mode label")
+    assert(result.warning?.includes("rollback guidance") === true, "limited mode warning includes rollback guidance")
+  } finally {
+    await cleanup()
+  }
+}
+
+async function test_framework_simulated_pause_is_non_blocking() {
+  process.stderr.write("\n--- framework-context: simulated pause remains non-blocking ---\n")
+  const dir = await setup()
+  try {
+    await writeGsdFiles(dir, "02")
+    await mkdir(join(dir, ".spec-kit"), { recursive: true })
+
+    const config = createConfig({ governance_mode: "strict", automation_level: "retard" })
+    await saveConfig(dir, config)
+
+    const stateManager = createStateManager(dir)
+    const state = unlockSession(createBrainState(generateSessionId(), config))
+    await stateManager.save(state)
+
+    const gate = createToolGateHookInternal(noopLogger, dir, config)
+    const result = await gate({ sessionID: "test-session", tool: "edit" })
+
+    assert(result.allowed, "simulated pause does not hard-deny tool execution")
+    assert(result.warning?.includes("SIMULATED PAUSE") === true, "simulated pause warning includes mode label")
+    assert(result.warning?.includes("rollback guidance") === true, "simulated pause warning includes rollback guidance")
+  } finally {
+    await cleanup()
+  }
+}
+
 async function main() {
   process.stderr.write("=== Framework Context Tests ===\n")
 
@@ -155,6 +212,8 @@ async function main() {
   await test_detect_both()
   await test_selection_menu_contract()
   await test_extract_goal_without_files()
+  await test_framework_limited_mode_is_simulated_block()
+  await test_framework_simulated_pause_is_non_blocking()
 
   process.stderr.write(`\n=== Framework Context: ${passed} passed, ${failed_} failed ===\n`)
   process.exit(failed_ > 0 ? 1 : 0)
