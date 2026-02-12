@@ -65,10 +65,10 @@ Every other system needs the SDK client to materialize its concepts. Without `cl
 **Status:** Not started
 
 Plans:
-- [ ] 02-01-PLAN.md — Turn-window bootstrap + permissive signal filtering (GOV-01..03)
-- [ ] 02-02-PLAN.md — Event-driven stale checks + governance toasts (GOV-04..05)
-- [ ] 02-03-PLAN.md — Framework detection + GSD phase-goal-aware drift context (GOV-06..07)
-- [ ] 02-04-PLAN.md — IGNORED escalation tier + 13-condition governance stress suite (GOV-08)
+- [ ] 02-01-PLAN.md — Governance signal model + turn-0 bootstrap + permissive navigation boundaries (GOV-01..03)
+- [ ] 02-02-PLAN.md — Dual-channel toast adapter + event-driven stale and compaction signaling (GOV-04..05)
+- [ ] 02-03-PLAN.md — Framework conflict selection gate + GSD phase-goal pinning (GOV-06..07)
+- [ ] 02-04-PLAN.md — IGNORED tri-evidence escalation + simulated block-mode stress validation (GOV-08)
 
 ### Success Criteria
 
