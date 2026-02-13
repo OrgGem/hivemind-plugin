@@ -23,8 +23,13 @@ export function createThinkBackTool(directory: string): ToolDefinition {
     description:
       "Pause and refocus. Shows your current trajectory, anchors, " +
       "what you've accomplished, and any issues. Use when you feel lost or stuck.",
-    args: {},
-    async execute(_args, _context) {
+    args: {
+      json: tool.schema
+        .boolean()
+        .optional()
+        .describe("Return output as JSON (default: false)"),
+    },
+    async execute(args, _context) {
       const stateManager = createStateManager(directory);
       const state = await stateManager.load();
       if (!state) {
@@ -130,6 +135,18 @@ export function createThinkBackTool(directory: string): ToolDefinition {
       }
 
       lines.push("=== END THINK BACK ===");
+
+      if (args.json) {
+        const data: Record<string, unknown> = {
+          session: { id: state.session.id, mode: state.session.mode },
+          hierarchy: { trajectory: state.hierarchy.trajectory, tactic: state.hierarchy.tactic, action: state.hierarchy.action },
+          metrics: { turns: state.metrics.turn_count, drift_score: state.metrics.drift_score, files_touched: state.metrics.files_touched, context_updates: state.metrics.context_updates },
+          anchors: anchorsState.anchors.map(a => ({ key: a.key, value: a.value })),
+          chain_breaks: chainBreaks.map(b => b.message),
+        }
+        return JSON.stringify(data, null, 2)
+      }
+
       let result = lines.join("\n") + "\n→ Use map_context to update your focus, or compact_session to archive and reset.";
       if (result.length > 2000) {
         result = result.slice(0, 1970) + '\n... (output truncated)';

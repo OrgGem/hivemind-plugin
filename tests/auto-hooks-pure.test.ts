@@ -381,7 +381,7 @@ function test_tool_activation() {
   const hint8 = getToolActivation(moderate);
   assert(hint8 === null, "with hierarchy set, moderate turns → null");
 
-  // 9. completedBranches >= 5 → hierarchy_prune (medium)
+  // 9. completedBranches >= 5 → hierarchy_manage (medium)
   const pruneable = makeState({
     trajectory: "Build auth",
     tactic: "JWT",
@@ -390,11 +390,11 @@ function test_tool_activation() {
   });
   const hint9 = getToolActivation(pruneable, { completedBranches: 5 });
   assert(
-    hint9 !== null && hint9.tool === "hierarchy_prune" && hint9.priority === "medium",
-    "completedBranches >= 5 → hierarchy_prune (medium)"
+    hint9 !== null && hint9.tool === "hierarchy_manage" && hint9.priority === "medium",
+    "completedBranches >= 5 → hierarchy_manage (medium)"
   );
 
-  // 10. hasMissingTree + flat hierarchy → hierarchy_migrate (medium)
+  // 10. hasMissingTree + flat hierarchy → hierarchy_manage (medium)
   const migratable = makeState({
     trajectory: "Build auth",
     tactic: "JWT",
@@ -403,8 +403,8 @@ function test_tool_activation() {
   });
   const hint10 = getToolActivation(migratable, { hasMissingTree: true });
   assert(
-    hint10 !== null && hint10.tool === "hierarchy_migrate" && hint10.priority === "medium",
-    "hasMissingTree + flat hierarchy → hierarchy_migrate (medium)"
+    hint10 !== null && hint10.tool === "hierarchy_manage" && hint10.priority === "medium",
+    "hasMissingTree + flat hierarchy → hierarchy_manage (medium)"
   );
 
   // 11. postCompaction → think_back (medium)

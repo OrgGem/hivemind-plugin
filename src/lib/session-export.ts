@@ -1,7 +1,80 @@
 /**
  * Session Export — Pure functions for generating exportable session data.
  */
-import type { BrainState } from "../schemas/brain-state.js";
+import { readFile, rm, writeFile } from "fs/promises"
+import { join } from "path"
+import { existsSync } from "fs"
+import type { BrainState } from "../schemas/brain-state.js"
+
+const HIVEMIND_DIR = ".hivemind"
+
+/**
+ * Check if a session file exists.
+ */
+export async function sessionExists(directory: string, sessionId: string): Promise<boolean> {
+  const sessionsDir = join(directory, HIVEMIND_DIR, "sessions")
+  const sessionPath = join(sessionsDir, `session-${sessionId}.json`)
+  return existsSync(sessionPath)
+}
+
+/**
+ * Load a session from the sessions directory.
+ */
+export async function loadSession(
+  directory: string,
+  sessionId: string
+): Promise<BrainState | null> {
+  const sessionsDir = join(directory, HIVEMIND_DIR, "sessions")
+  const sessionPath = join(sessionsDir, `session-${sessionId}.json`)
+  
+  try {
+    const content = await readFile(sessionPath, "utf-8")
+    return JSON.parse(content) as BrainState
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Delete a session from the sessions directory.
+ */
+export async function pruneSession(directory: string, sessionId: string): Promise<void> {
+  const sessionsDir = join(directory, HIVEMIND_DIR, "sessions")
+  const sessionPath = join(sessionsDir, `session-${sessionId}.json`)
+  
+  try {
+    await rm(sessionPath, { force: true })
+  } catch {
+    // Ignore errors
+  }
+}
+
+/**
+ * Export a session to the sessions directory.
+ */
+export async function exportSession(
+  directory: string,
+  sessionId: string
+): Promise<string> {
+  const { createStateManager } = await import("./persistence.js")
+  const stateManager = createStateManager(directory)
+  const state = await stateManager.load()
+  
+  if (!state) {
+    throw new Error("No active session to export")
+  }
+  
+  const sessionsDir = join(directory, HIVEMIND_DIR, "sessions")
+  
+  // Ensure sessions directory exists
+  const { mkdir } = await import("fs/promises")
+  await mkdir(sessionsDir, { recursive: true })
+  
+  const exportPath = join(sessionsDir, `session-${sessionId}.json`)
+  await writeFile(exportPath, JSON.stringify(state, null, 2), "utf-8")
+  
+  return exportPath
+}
 
 export interface SessionExportData {
   id: string;

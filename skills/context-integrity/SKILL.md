@@ -105,8 +105,8 @@ node bin/hivemind-tools.cjs state hierarchy
 node bin/hivemind-tools.cjs session trace <stamp>
 
 # 4. What mems exist?
-list_shelves({})
-recall_mems({ shelf: "decisions" })
+recall_mems({})
+recall_mems({ query: "decisions" })
 ```
 
 Then start a new session:
@@ -132,7 +132,7 @@ save_anchor({
 })
 
 // 3. Prune completed/abandoned branches
-hierarchy_prune({})
+hierarchy_manage({ action: "prune" })
 
 // 4. Re-set trajectory clearly
 map_context({

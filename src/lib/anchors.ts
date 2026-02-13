@@ -3,7 +3,8 @@
  */
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
-import { dirname, join } from "path";
+import { dirname } from "path";
+import { getEffectivePaths } from "./paths.js";
 
 export interface Anchor {
   key: string;
@@ -20,7 +21,7 @@ export interface AnchorsState {
 const ANCHORS_VERSION = "1.0.0";
 
 function getAnchorsPath(projectRoot: string): string {
-  return join(projectRoot, ".hivemind", "anchors.json");
+  return getEffectivePaths(projectRoot).anchors;
 }
 
 export async function loadAnchors(projectRoot: string): Promise<AnchorsState> {

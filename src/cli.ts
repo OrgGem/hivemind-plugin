@@ -19,6 +19,7 @@ import { join } from "node:path"
 import { initProject } from "./cli/init.js"
 import { createStateManager, loadConfig } from "./lib/persistence.js"
 import { listArchives } from "./lib/planning-fs.js"
+import { getEffectivePaths } from "./lib/paths.js"
 
 const COMMANDS = ["init", "status", "compact", "dashboard", "settings", "purge", "help"] as const
 type Command = (typeof COMMANDS)[number]
@@ -100,8 +101,8 @@ async function showStatus(directory: string): Promise<void> {
 }
 
 async function showSettings(directory: string): Promise<void> {
-  const hivemindDir = join(directory, ".hivemind")
-  const configPath = join(hivemindDir, "config.json")
+  const p = getEffectivePaths(directory)
+  const configPath = p.config
 
   if (!existsSync(configPath)) {
     // eslint-disable-next-line no-console
@@ -271,7 +272,7 @@ async function main(): Promise<void> {
       break
 
     case "purge": {
-      const hivemindDir = join(directory, ".hivemind")
+      const hivemindDir = getEffectivePaths(directory).root
       if (!existsSync(hivemindDir)) {
         console.log("❌ No .hivemind/ directory found. Nothing to purge.")
         break

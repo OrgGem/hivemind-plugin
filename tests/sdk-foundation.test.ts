@@ -266,7 +266,7 @@ async function test_backwardCompatibility() {
   
   // Verify Tools exports
   const toolCount = Object.keys(Tools).length
-  assert(toolCount >= 14, `Tools exports count: ${toolCount} (>= 14)`)
+  assert(toolCount >= 10, `Tools exports count: ${toolCount} (>= 10)`)
   assert(typeof Tools.createDeclareIntentTool === "function", "createDeclareIntentTool exported")
   
   // Verify Hooks exports

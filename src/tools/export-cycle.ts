@@ -42,6 +42,10 @@ export function createExportCycleTool(directory: string): ToolDefinition {
       findings: tool.schema
         .string()
         .describe("What was learned or decided (1-3 sentences)"),
+      json: tool.schema
+        .boolean()
+        .optional()
+        .describe("Return output as JSON (default: false)"),
     },
     async execute(args, _context) {
       if (!args.findings?.trim()) {
@@ -112,6 +116,17 @@ export function createExportCycleTool(directory: string): ToolDefinition {
 
       // Build confirmation
       const ackNote = hadPendingAck ? " Failure acknowledged." : "";
+
+      if (args.json) {
+        return JSON.stringify({
+          outcome: args.outcome,
+          tree: treeAction,
+          projection: hierarchyProjected ? "synced" : "unchanged",
+          mem: memAction,
+          failure_ack: hadPendingAck,
+        }, null, 2)
+      }
+
       return `Cycle exported [${args.outcome}]. Tree: ${treeAction}. Projection: ${hierarchyProjected ? "synced" : "unchanged"}. Mem: ${memAction}.${ackNote}\n→ ${args.outcome === "failure" ? "Consider map_context with status \"blocked\" to update hierarchy." : "Continue working."}`;
     },
   });

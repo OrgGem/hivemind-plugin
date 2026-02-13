@@ -385,16 +385,12 @@ const TOOL_PATTERNS: Record<ToolCategory, RegExp[]> = {
     /^declare_intent$/i,
     /^map_context$/i,
     /^compact_session$/i,
-    /^self_rate$/i,
     /^scan_hierarchy$/i,
     /^save_anchor$/i,
     /^think_back$/i,
-    /^check_drift$/i,
     /^save_mem$/i,
-    /^list_shelves$/i,
     /^recall_mems$/i,
-    /^hierarchy_prune$/i,
-    /^hierarchy_migrate$/i,
+    /^hierarchy_manage$/i,
     /^export_cycle$/i,
   ],
 };
@@ -715,8 +711,8 @@ export function compileSignals(opts: {
     signals.push({
       type: "completed_pileup",
       severity: 5,
-      message: `${opts.completedBranches} completed branches. Run hierarchy_prune to clean up.`,
-      suggestion: "hierarchy_prune",
+      message: `${opts.completedBranches} completed branches. Run hierarchy_manage with action=prune to clean up.`,
+      suggestion: "hierarchy_manage",
     });
   }
 
@@ -739,8 +735,8 @@ export function compileSignals(opts: {
     signals.push({
       type: "missing_tree",
       severity: 0,
-      message: "No hierarchy.json found. Run hierarchy_migrate to upgrade.",
-      suggestion: "hierarchy_migrate",
+      message: "No hierarchy.json found. Run hierarchy_manage with action=migrate to upgrade.",
+      suggestion: "hierarchy_manage",
     });
   }
 

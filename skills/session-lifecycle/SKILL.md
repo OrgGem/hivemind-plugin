@@ -41,7 +41,7 @@ declare_intent({
 
 **What skipping costs:**
 - No drift detection → silent wandering without awareness
-- No tree → `scan_hierarchy`, `think_back`, `check_drift` return nothing
+- No tree → `scan_hierarchy`, `think_back` return nothing
 - No session file → compaction loses all context
 - System prompt warns every turn (strict/assisted modes)
 

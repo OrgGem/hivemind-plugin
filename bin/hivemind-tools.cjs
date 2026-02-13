@@ -158,8 +158,21 @@ function validateHierarchyChain(tree) {
 function getHiveMindPaths(dir) {
   const hivemindDir = path.join(dir, '.hivemind');
   const sessionsDir = path.join(hivemindDir, 'sessions');
+  const activeDir = path.join(sessionsDir, 'active');
   const archiveDir = path.join(sessionsDir, 'archive');
   const templatesDir = path.join(hivemindDir, 'templates');
+  const docsDir = path.join(hivemindDir, 'docs');
+
+  // Bridge: detect v2.0.0 structure (state/) vs legacy flat
+  const stateDir = path.join(hivemindDir, 'state');
+  const memoryDir = path.join(hivemindDir, 'memory');
+  const isNew = exists(stateDir) && exists(path.join(hivemindDir, 'manifest.json'));
+  const isLegacy = exists(path.join(hivemindDir, 'brain.json')) && !exists(stateDir);
+  // Fresh install or new structure → use state/ paths; legacy → flat paths
+  const brainPath = (isNew || !isLegacy) ? path.join(stateDir, 'brain.json') : path.join(hivemindDir, 'brain.json');
+  const hierarchyPath = (isNew || !isLegacy) ? path.join(stateDir, 'hierarchy.json') : path.join(hivemindDir, 'hierarchy.json');
+  const anchorsPath = (isNew || !isLegacy) ? path.join(stateDir, 'anchors.json') : path.join(hivemindDir, 'anchors.json');
+  const memsPath = (isNew || !isLegacy) ? path.join(memoryDir, 'mems.json') : path.join(hivemindDir, 'mems.json');
 
   // OpenCode config — check both .json and .jsonc
   let opencodeConfigPath = path.join(dir, 'opencode.json');
@@ -187,18 +200,19 @@ function getHiveMindPaths(dir) {
   return {
     project: dir,
     hivemind: hivemindDir,
-    brain: path.join(hivemindDir, 'brain.json'),
+    brain: brainPath,
     config: path.join(hivemindDir, 'config.json'),
-    hierarchy: path.join(hivemindDir, 'hierarchy.json'),
+    hierarchy: hierarchyPath,
+    anchors: anchorsPath,
+    mems: memsPath,
     manifest: path.join(sessionsDir, 'manifest.json'),
-    indexMd: path.join(sessionsDir, 'index.md'),
+    indexMd: path.join(hivemindDir, 'INDEX.md'),
     activeMd: path.join(sessionsDir, 'active.md'),
+    activeDir,
     archive: archiveDir,
     templates: templatesDir,
     sessionTemplate: path.join(templatesDir, 'session.md'),
-    commandments: path.join(hivemindDir, '10-commandments.md'),
-    anchors: path.join(hivemindDir, 'anchors.json'),
-    mems: path.join(hivemindDir, 'mems.json'),
+    commandments: path.join(docsDir, '10-commandments.md'),
     sessions: sessionsDir,
     opencode: { path: opencodeConfigPath, type: opencodeConfigType },
     globalOpencode: { path: globalOpencodeConfig, type: globalConfigType },
@@ -260,8 +274,8 @@ function cmdVerifyInstall(args) {
   const coreFiles = [
     ['brain.json', paths.brain],
     ['config.json', paths.config],
-    ['index.md', paths.indexMd],
-    ['active.md', paths.activeMd],
+    ['INDEX.md', paths.indexMd],
+    ['active-session', exists(paths.activeDir) ? paths.activeDir : paths.activeMd],
     ['10-commandments.md', paths.commandments],
   ];
 
@@ -656,7 +670,13 @@ function cmdEcosystemCheck(args) {
   }
 
   // 2. INIT: .hivemind/ exists with core files
-  const coreFiles = [paths.brain, paths.config, paths.indexMd, paths.activeMd, paths.commandments];
+  const coreFiles = [
+    paths.brain,
+    paths.config,
+    paths.indexMd,
+    exists(paths.activeDir) ? paths.activeDir : paths.activeMd,
+    paths.commandments,
+  ];
   const existingCore = coreFiles.filter(f => exists(f));
   if (existingCore.length === coreFiles.length) {
     chain.push({ step: 'init', status: 'pass', detail: `${existingCore.length}/${coreFiles.length} files` });

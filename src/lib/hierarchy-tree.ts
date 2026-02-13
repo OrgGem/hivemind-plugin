@@ -16,9 +16,10 @@
  * - soft-governance.ts → loadTree (timestamp gap detection)
  */
 
-import { readFile, writeFile } from "fs/promises";
+import { readFile, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
-import { join } from "path";
+import { dirname } from "path";
+import { getEffectivePaths } from "./paths.js";
 import type { HierarchyLevel, ContextStatus } from "../schemas/hierarchy.js";
 
 // ============================================================
@@ -241,6 +242,52 @@ export function moveCursor(tree: HierarchyTree, nodeId: string): HierarchyTree {
   const node = findNode(tree.root, nodeId);
   if (!node) return tree;
   return { ...tree, cursor: nodeId };
+}
+
+/**
+ * Migrate a node from one parent to another.
+ * 
+ * @param tree - The hierarchy tree
+ * @param nodeId - ID of the node to move
+ * @param newParentId - ID of the new parent node
+ * @returns Updated tree
+ */
+export function migrateNode(
+  tree: HierarchyTree,
+  nodeId: string,
+  newParentId: string
+): HierarchyTree {
+  if (!tree.root) return tree;
+  
+  // Find the node to migrate
+  const node = findNode(tree.root, nodeId);
+  if (!node) return tree;
+  
+  // Find the new parent
+  const newParent = findNode(tree.root, newParentId);
+  if (!newParent) return tree;
+  
+  // Remove node from its current location
+  const withoutNode = removeNodeFromTree(tree.root, nodeId);
+  
+  // Add node to new parent
+  const withMigration = addChildToNode(withoutNode, newParentId, node);
+  
+  return { ...tree, root: withMigration };
+}
+
+/**
+ * Remove a node from the tree by filtering it out at the parent level.
+ * The removed node's children are NOT promoted — migrateNode re-attaches the whole subtree.
+ */
+function removeNodeFromTree(root: HierarchyNode, nodeId: string): HierarchyNode {
+  // Filter out the target node from children; recurse into surviving children
+  return {
+    ...root,
+    children: root.children
+      .filter(child => child.id !== nodeId)
+      .map(child => removeNodeFromTree(child, nodeId)),
+  };
 }
 
 /**
@@ -719,7 +766,7 @@ function isFullyComplete(node: HierarchyNode): boolean {
  * @consumer loadTree, saveTree, treeExists
  */
 export function getHierarchyPath(projectRoot: string): string {
-  return join(projectRoot, ".hivemind", "hierarchy.json");
+  return getEffectivePaths(projectRoot).hierarchy;
 }
 
 /**
@@ -764,6 +811,7 @@ export async function saveTree(
   tree: HierarchyTree
 ): Promise<void> {
   const path = getHierarchyPath(projectRoot);
+  await mkdir(dirname(path), { recursive: true });
   await writeFile(path, JSON.stringify(tree, null, 2), "utf-8");
 }
 

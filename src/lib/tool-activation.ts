@@ -27,7 +27,7 @@ export interface ToolActivationContext {
 /**
  * Returns the single most relevant tool hint based on current brain state.
  * Priority order: LOCKED > drift > long session > empty hierarchy >
- *   hierarchy_prune > hierarchy_migrate > think_back.
+ *   hierarchy_manage(prune) > hierarchy_manage(migrate) > think_back.
  */
 export function getToolActivation(
   state: BrainState,
@@ -69,19 +69,19 @@ export function getToolActivation(
     };
   }
 
-  // Priority 5: High completed branches → suggest hierarchy_prune
+  // Priority 5: High completed branches → suggest hierarchy_manage(prune)
   if (context?.completedBranches && context.completedBranches >= 5) {
     return {
-      tool: "hierarchy_prune",
+      tool: "hierarchy_manage",
       reason: `${context.completedBranches} completed branches. Prune to keep hierarchy clean.`,
       priority: "medium",
     };
   }
 
-  // Priority 6: Missing hierarchy tree + flat hierarchy exists → suggest hierarchy_migrate
+  // Priority 6: Missing hierarchy tree + flat hierarchy exists → suggest hierarchy_manage(migrate)
   if (context?.hasMissingTree && (state.hierarchy.trajectory || state.hierarchy.tactic)) {
     return {
-      tool: "hierarchy_migrate",
+      tool: "hierarchy_manage",
       reason: "No hierarchy tree found but flat hierarchy exists. Migrate for better tracking.",
       priority: "medium",
     };

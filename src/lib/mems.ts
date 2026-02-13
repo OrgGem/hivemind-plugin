@@ -3,7 +3,8 @@
  */
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
-import { dirname, join } from "path";
+import { dirname } from "path";
+import { getEffectivePaths } from "./paths.js";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ export const BUILTIN_SHELVES = ["decisions", "patterns", "errors", "solutions", 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 function getMemsPath(projectRoot: string): string {
-  return join(projectRoot, ".hivemind", "mems.json");
+  return getEffectivePaths(projectRoot).mems;
 }
 
 export function generateMemId(): string {

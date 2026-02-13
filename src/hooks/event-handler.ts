@@ -1,3 +1,21 @@
+/**
+ * Event Handler Hook — Session event processing.
+ *
+ * Handles OpenCode session events:
+ *   - session.created: Log new session
+ *   - session.idle: Check drift and staleness
+ *   - session.compacted: Track compaction events
+ *   - file.edited: Track file changes
+ *   - session.diff: Track session diffs
+ *
+ * FLAW-TOAST-004/005/006 FIX: Added toast throttling to prevent noise cascade.
+ * - Drift toasts only emit when drift_score < 30 (was < 50)
+ * - Staleness toasts removed - visible in scan_hierarchy output
+ * - Session compacted toast removed - duplicate of compaction.ts
+ *
+ * P3: try/catch — never break event handling
+ */
+
 import type {
   Event,
   EventSessionCreated,
@@ -15,6 +33,7 @@ import {
   type GovernanceSeverity,
 } from "../lib/detection.js"
 import { getClient } from "./sdk-context.js"
+import { checkAndRecordToast } from "../lib/toast-throttle.js"
 
 type ToastVariant = "info" | "warning" | "error"
 
@@ -43,7 +62,9 @@ export function createEventHandler(log: Logger, directory: string) {
           let nextState = state
           const staleness = getStalenessInfo(nextState, config.stale_session_days)
 
-          if (nextState.metrics.drift_score < 50) {
+          // FLAW-TOAST-004 FIX: Only emit drift toast when score < 30 (was < 50)
+          // and only after 10+ turns to avoid false urgency during active exploration
+          if (nextState.metrics.drift_score < 30 && nextState.metrics.turn_count >= 10) {
             const repeatCount = nextState.metrics.governance_counters.drift
             const severity = computeGovernanceSeverity({
               kind: "drift",
@@ -58,20 +79,21 @@ export function createEventHandler(log: Logger, directory: string) {
               },
             }
 
-            await showToastSafe(
-              log,
-              `Drift risk detected. Score ${nextState.metrics.drift_score}/100. Use map_context to realign.`,
-              toToastVariant(severity),
-            )
+            // Throttle drift toasts
+            if (checkAndRecordToast("drift", "idle")) {
+              await showToastSafe(
+                log,
+                `Drift risk detected. Score ${nextState.metrics.drift_score}/100. Use map_context to realign.`,
+                toToastVariant(severity),
+              )
+            }
           }
 
+          // FLAW-TOAST-005 FIX: Removed staleness toast
+          // Staleness is visible in scan_hierarchy output - no push notification needed
+          // Just log it for debugging purposes
           if (staleness.isStale) {
-            const repeatCount = nextState.metrics.governance_counters.drift
-            const severity = computeGovernanceSeverity({
-              kind: "drift",
-              repetitionCount: repeatCount,
-              acknowledged: nextState.metrics.governance_counters.acknowledged,
-            })
+            await log.debug(`[event] Session stale: ${staleness.idleDays}d idle (threshold ${staleness.threshold}d)`)
             nextState = {
               ...nextState,
               metrics: {
@@ -79,12 +101,6 @@ export function createEventHandler(log: Logger, directory: string) {
                 governance_counters: registerGovernanceSignal(nextState.metrics.governance_counters, "drift"),
               },
             }
-
-            await showToastSafe(
-              log,
-              `Session idle ${staleness.idleDays}d (threshold ${staleness.threshold}d). Run compact_session if context is stale.`,
-              toToastVariant(severity),
-            )
           }
 
           await stateManager.save(nextState)
@@ -104,11 +120,9 @@ export function createEventHandler(log: Logger, directory: string) {
             await stateManager.save(nextState)
           }
 
-          await showToastSafe(
-            log,
-            "Session compacted. Context snapshot preserved.",
-            "info",
-          )
+          // FLAW-TOAST-006 FIX: Removed session.compacted toast
+          // This was a duplicate of compaction.ts toast - redundant notification
+          // Compaction is transparent, context is preserved
           break
 
         case "file.edited":

@@ -5,7 +5,7 @@
  *
  * ## Architecture
  *
- * - **14 Tools**: declare_intent, map_context, compact_session, self_rate, scan_hierarchy, save_anchor, think_back, check_drift, save_mem, list_shelves, recall_mems, hierarchy_prune, hierarchy_migrate, export_cycle
+ * - **10 Tools** (HC3 compliant): declare_intent, map_context, compact_session, scan_hierarchy, save_anchor, think_back, save_mem, recall_mems, hierarchy_manage, export_cycle
  * - **4 Hooks**: system prompt injection, tool gate (before), soft governance (after), compaction preservation
  * - **Soft Governance**: Cannot block, only guide through prompts + tracking
  *
@@ -33,16 +33,12 @@ import {
   createDeclareIntentTool,
   createMapContextTool,
   createCompactSessionTool,
-  createSelfRateTool,
   createScanHierarchyTool,
   createSaveAnchorTool,
   createThinkBackTool,
-  createCheckDriftTool,
   createSaveMemTool,
-  createListShelvesTool,
   createRecallMemsTool,
-  createHierarchyPruneTool,
-  createHierarchyMigrateTool,
+  createHierarchyManageTool,
   createExportCycleTool,
 } from "./tools/index.js"
 import {
@@ -63,7 +59,7 @@ import { initSdkContext } from "./hooks/sdk-context.js"
  *   - SDK context (client, BunShell, serverUrl, project)
  *   - Session lifecycle hook (system prompt injection)
  *   - Soft governance hook (tracking + violation detection)
- *   - 14 context management tools
+ *   - 10 context management tools (HC3 compliant)
  */
 export const HiveMindPlugin: Plugin = async ({
   directory,
@@ -112,16 +108,12 @@ export const HiveMindPlugin: Plugin = async ({
       declare_intent: createDeclareIntentTool(effectiveDir),
       map_context: createMapContextTool(effectiveDir),
       compact_session: createCompactSessionTool(effectiveDir),
-      self_rate: createSelfRateTool(effectiveDir),
       scan_hierarchy: createScanHierarchyTool(effectiveDir),
       save_anchor: createSaveAnchorTool(effectiveDir),
       think_back: createThinkBackTool(effectiveDir),
-      check_drift: createCheckDriftTool(effectiveDir),
       save_mem: createSaveMemTool(effectiveDir),
-      list_shelves: createListShelvesTool(effectiveDir),
       recall_mems: createRecallMemsTool(effectiveDir),
-      hierarchy_prune: createHierarchyPruneTool(effectiveDir),
-      hierarchy_migrate: createHierarchyMigrateTool(effectiveDir),
+      hierarchy_manage: createHierarchyManageTool(effectiveDir),
       export_cycle: createExportCycleTool(effectiveDir),
     },
 

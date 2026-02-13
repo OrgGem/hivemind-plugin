@@ -14,7 +14,7 @@ import { createCompactSessionTool } from "../src/tools/compact-session.js"
 import { createScanHierarchyTool } from "../src/tools/scan-hierarchy.js"
 import { createSaveAnchorTool } from "../src/tools/save-anchor.js"
 import { createThinkBackTool } from "../src/tools/think-back.js"
-import { createCheckDriftTool } from "../src/tools/check-drift.js"
+// check_drift absorbed into scan_hierarchy (include_drift=true)
 import { createCompactionHook } from "../src/hooks/compaction.js"
 import { createSessionLifecycleHook } from "../src/hooks/session-lifecycle.js"
 import { createToolGateHookInternal } from "../src/hooks/tool-gate.js"
@@ -26,8 +26,9 @@ import { createConfig } from "../src/schemas/config.js"
 import { loadAnchors, saveAnchors, addAnchor } from "../src/lib/anchors.js"
 import { loadMems } from "../src/lib/mems.js"
 import { loadTree } from "../src/lib/hierarchy-tree.js"
+import { getEffectivePaths } from "../src/lib/paths.js"
 import { createSaveMemTool } from "../src/tools/save-mem.js"
-import { createListShelvesTool } from "../src/tools/list-shelves.js"
+// list_shelves absorbed into recall_mems (no query = list mode)
 import { createRecallMemsTool } from "../src/tools/recall-mems.js"
 import { mkdtemp, rm, readdir, mkdir, writeFile } from "fs/promises"
 import { tmpdir } from "os"
@@ -457,7 +458,7 @@ async function test_persistenceMigratesWriteWithoutReadCount() {
     delete legacyLike.metrics.write_without_read_count
 
     await writeFile(
-      join(dir, ".hivemind", "brain.json"),
+      getEffectivePaths(dir).brain,
       JSON.stringify(legacyLike, null, 2),
       "utf-8"
     )
@@ -858,18 +859,18 @@ async function test_checkDriftShowsHealthyWhenAligned() {
       { level: "action", content: "On-track action", status: "active" }
     )
 
-    // Step 2: Call check_drift
-    const checkDriftTool = createCheckDriftTool(dir)
-    const result = await checkDriftTool.execute({})
+    // Step 2: Call scan_hierarchy with include_drift
+    const scanDriftTool = createScanHierarchyTool(dir)
+    const result = await scanDriftTool.execute({ include_drift: true })
 
     // Step 3: Assert healthy state
     assert(
       result.includes("✅") && result.includes("On track"),
-      "check_drift shows healthy when trajectory/tactic/action aligned"
+      "scan_hierarchy+drift shows healthy when trajectory/tactic/action aligned"
     )
     assert(
       result.includes("Hierarchy chain is intact"),
-      "check_drift shows intact chain when hierarchy complete"
+      "scan_hierarchy+drift shows intact chain when hierarchy complete"
     )
 
   } finally {
@@ -902,14 +903,14 @@ async function test_checkDriftWarnsWhenDrifting() {
       await stateManager.save(state)
     }
 
-    // Step 3: Call check_drift
-    const checkDriftTool = createCheckDriftTool(dir)
-    const result = await checkDriftTool.execute({})
+    // Step 3: Call scan_hierarchy with include_drift
+    const scanDriftTool = createScanHierarchyTool(dir)
+    const result = await scanDriftTool.execute({ include_drift: true })
 
     // Step 4: Assert warning state
     assert(
       result.includes("⚠") && result.includes("Some drift detected"),
-      "check_drift warns when drift score in warning range"
+      "scan_hierarchy+drift warns when drift score in warning range"
     )
 
   } finally {
@@ -930,7 +931,6 @@ async function test_fullCognitiveMeshWorkflow() {
     const mapContextTool = createMapContextTool(dir)
     const saveAnchorTool = createSaveAnchorTool(dir)
     const thinkBackTool = createThinkBackTool(dir)
-    const checkDriftTool = createCheckDriftTool(dir)
     const scanTool = createScanHierarchyTool(dir)
     const compactTool = createCompactSessionTool(dir)
 
@@ -971,10 +971,10 @@ async function test_fullCognitiveMeshWorkflow() {
     )
 
     // Step 6: Check drift — should be healthy
-    const driftResult = await checkDriftTool.execute({})
+    const driftResult = await scanTool.execute({ include_drift: true })
     assert(
       driftResult.includes("On track") && driftResult.includes("Hierarchy chain is intact"),
-      "check_drift confirms healthy cognitive mesh"
+      "scan_hierarchy+drift confirms healthy cognitive mesh"
     )
 
     // Step 7: Compact — anchors survive
@@ -1125,20 +1125,20 @@ async function test_listShelvesShowsOverview() {
     await saveMemTool.execute({ shelf: "decisions", content: "Decision 2" })
     await saveMemTool.execute({ shelf: "errors", content: "Error 1" })
 
-    // Step 3: Call list_shelves
-    const listTool = createListShelvesTool(dir)
+    // Step 3: Call recall_mems (no query = list mode)
+    const listTool = createRecallMemsTool(dir)
     const listResult = await listTool.execute({})
 
     // Step 4: Assert total count
     assert(
       listResult.includes("Total memories: 3"),
-      "list_shelves shows total count"
+      "recall_mems list mode shows total count"
     )
 
     // Step 5: Assert shelf breakdown
     assert(
       listResult.includes("decisions: 2") && listResult.includes("errors: 1"),
-      "list_shelves shows shelf breakdown"
+      "recall_mems list mode shows shelf breakdown"
     )
 
   } finally {
@@ -1238,7 +1238,7 @@ async function test_fullMemsBrainWorkflow() {
     const mapContextTool = createMapContextTool(dir)
     const saveMemTool = createSaveMemTool(dir)
     const recallTool = createRecallMemsTool(dir)
-    const listTool = createListShelvesTool(dir)
+    const listTool = createRecallMemsTool(dir)
     const compactTool = createCompactSessionTool(dir)
 
     // Step 1: Declare intent
@@ -1290,7 +1290,7 @@ async function test_fullMemsBrainWorkflow() {
       shelvesResult.includes("decisions: 1") &&
       shelvesResult.includes("patterns: 1") &&
       shelvesResult.includes("context: 1"),
-      "full workflow: list_shelves shows all shelf categories"
+      "full workflow: recall_mems list mode shows all shelf categories"
     )
 
   } finally {

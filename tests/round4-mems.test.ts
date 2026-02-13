@@ -26,7 +26,6 @@ import {
 } from "../src/lib/mems.js"
 import type { MemsState } from "../src/lib/mems.js"
 import { createSaveMemTool } from "../src/tools/save-mem.js"
-import { createListShelvesTool } from "../src/tools/list-shelves.js"
 import { createRecallMemsTool } from "../src/tools/recall-mems.js"
 import { createCompactSessionTool } from "../src/tools/compact-session.js"
 import { createDeclareIntentTool } from "../src/tools/declare-intent.js"
@@ -38,6 +37,7 @@ import { initProject } from "../src/cli/init.js"
 import { createStateManager } from "../src/lib/persistence.js"
 import { createBrainState } from "../src/schemas/brain-state.js"
 import { createConfig } from "../src/schemas/config.js"
+import { getEffectivePaths } from "../src/lib/paths.js"
 
 // ─── Harness ─────────────────────────────────────────────────────────
 
@@ -285,7 +285,7 @@ async function test_saveMemTool() {
     const tool = createSaveMemTool(tmpDir1)
     await tool.execute({ shelf: "decisions", content: "Use PostgreSQL for persistence" })
 
-    const memsPath = join(tmpDir1, ".hivemind", "mems.json")
+    const memsPath = getEffectivePaths(tmpDir1).mems
     assert(
       existsSync(memsPath),
       "save_mem saves to mems.json"
@@ -379,26 +379,26 @@ async function test_saveMemTool() {
   }
 }
 
-// ─── list_shelves Tool (3 assertions) ──────────────────────────────────
+// ─── recall_mems list mode (3 assertions) ─────────────────────────
 
 async function test_listShelvesTool() {
-  process.stderr.write("\n--- list_shelves: tool tests ---\n")
+  process.stderr.write("\n--- recall_mems list mode: shelf listing ---\n")
 
-  // 6. list_shelves returns empty message for no mems
+  // 6. recall_mems (no query) returns empty message for no mems
   const tmpDir1 = makeTmpDir()
   try {
-    const tool = createListShelvesTool(tmpDir1)
+    const tool = createRecallMemsTool(tmpDir1)
     const result = await tool.execute({})
 
     assert(
       result.includes("Mems Brain is empty"),
-      "list_shelves returns empty message for no mems"
+      "recall_mems list mode returns empty message for no mems"
     )
   } finally {
     cleanTmpDir(tmpDir1)
   }
 
-  // 7. list_shelves shows shelf counts
+  // 7. recall_mems (no query) shows shelf counts
   const tmpDir2 = makeTmpDir()
   try {
     const config = createConfig({ governance_mode: "assisted" })
@@ -411,18 +411,18 @@ async function test_listShelvesTool() {
     await saveTool.execute({ shelf: "decisions", content: "Decision 2" })
     await saveTool.execute({ shelf: "errors", content: "Error 1" })
 
-    const listTool = createListShelvesTool(tmpDir2)
+    const listTool = createRecallMemsTool(tmpDir2)
     const result = await listTool.execute({})
 
     assert(
       result.includes("decisions: 2") && result.includes("errors: 1"),
-      "list_shelves shows shelf counts"
+      "recall_mems list mode shows shelf counts"
     )
   } finally {
     cleanTmpDir(tmpDir2)
   }
 
-  // 8. list_shelves shows recent memories (includes content preview)
+  // 8. recall_mems (no query) shows recent memories (includes content preview)
   const tmpDir3 = makeTmpDir()
   try {
     const config = createConfig({ governance_mode: "assisted" })
@@ -433,12 +433,12 @@ async function test_listShelvesTool() {
     const saveTool = createSaveMemTool(tmpDir3)
     await saveTool.execute({ shelf: "solutions", content: "Cache invalidation via TTL" })
 
-    const listTool = createListShelvesTool(tmpDir3)
+    const listTool = createRecallMemsTool(tmpDir3)
     const result = await listTool.execute({})
 
     assert(
       result.includes("Cache invalidation via TTL"),
-      "list_shelves shows recent memories"
+      "recall_mems list mode shows recent memories"
     )
   } finally {
     cleanTmpDir(tmpDir3)

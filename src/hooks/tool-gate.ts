@@ -29,11 +29,11 @@ import { checkAndRecordToast } from "../lib/toast-throttle.js"
 
 /** Tools that are always allowed regardless of governance state */
 const EXEMPT_TOOLS = new Set([
-  // HiveMind tools (always allowed)
-  "declare_intent", "map_context", "compact_session", "self_rate",
-  "scan_hierarchy", "save_anchor", "think_back", "check_drift",
-  "save_mem", "list_shelves", "recall_mems",
-  "hierarchy_prune", "hierarchy_migrate", "export_cycle",
+  // HiveMind tools (always allowed) — 10 tools, HC3 compliant
+  "declare_intent", "map_context", "compact_session",
+  "scan_hierarchy", "save_anchor", "think_back",
+  "save_mem", "recall_mems",
+  "hierarchy_manage", "export_cycle",
   // OpenCode innate read-only tools
   "read", "grep", "glob",
   // OpenCode innate utility tools (can't block these meaningfully)
@@ -47,10 +47,10 @@ const WRITE_TOOLS = new Set([
 
 const CONFLICT_SAFE_TOOLS = new Set([
   "read", "grep", "glob",
-  "declare_intent", "map_context", "compact_session", "self_rate",
-  "scan_hierarchy", "save_anchor", "think_back", "check_drift",
-  "save_mem", "list_shelves", "recall_mems",
-  "hierarchy_prune", "hierarchy_migrate", "export_cycle",
+  "declare_intent", "map_context", "compact_session",
+  "scan_hierarchy", "save_anchor", "think_back",
+  "save_mem", "recall_mems",
+  "hierarchy_manage", "export_cycle",
 ])
 
 function isExemptTool(toolName: string): boolean {

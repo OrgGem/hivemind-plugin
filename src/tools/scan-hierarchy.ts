@@ -1,8 +1,9 @@
 /**
- * scan_hierarchy — Structured read of current session state.
- * Agent Thought: "What am I working on right now?"
+ * scan_hierarchy — Structured read of current session state + optional drift analysis.
+ * Agent Thought: "What am I working on right now?" / "Am I still on track?"
  *
  * Hierarchy Redesign: renders ASCII tree from hierarchy.json instead of flat strings.
+ * Absorbs check_drift: when include_drift=true, appends drift report.
  */
 import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool";
 import { createStateManager } from "../lib/persistence.js";
@@ -14,14 +15,26 @@ import {
   getTreeStats,
   treeExists,
 } from "../lib/hierarchy-tree.js";
+import { detectChainBreaks } from "../lib/chain-analysis.js";
+import { calculateDriftScore } from "../schemas/brain-state.js";
 
 export function createScanHierarchyTool(directory: string): ToolDefinition {
   return tool({
     description:
       "Quick snapshot of your current session — hierarchy, metrics, anchors, and memories. " +
-      "For a deeper refocus with plan review and chain analysis, use think_back instead.",
-    args: {},
-    async execute(_args, _context) {
+      "Set include_drift=true for alignment analysis with drift score, chain integrity, and recommendations. " +
+      "For a deeper refocus with plan review, use think_back instead.",
+    args: {
+      include_drift: tool.schema
+        .boolean()
+        .optional()
+        .describe("Include drift alignment analysis (default: false). Set true to check if work aligns with trajectory."),
+      json: tool.schema
+        .boolean()
+        .optional()
+        .describe("Return output as JSON (default: false)"),
+    },
+    async execute(args, _context) {
       const stateManager = createStateManager(directory);
       const state = await stateManager.load();
       if (!state) {
@@ -76,7 +89,65 @@ export function createScanHierarchyTool(directory: string): ToolDefinition {
         lines.push(`Memories: ${memsState.mems.length} [${shelfInfo}]`)
       }
 
-      return lines.join('\n') + '\n→ Use check_drift for alignment analysis, or think_back for a full context refresh.'
+      // Drift analysis (absorbs check_drift)
+      if (args.include_drift) {
+        const chainBreaks = detectChainBreaks(state)
+        const driftScore = calculateDriftScore(state)
+
+        lines.push(``)
+        lines.push(`=== DRIFT REPORT ===`)
+        lines.push(``)
+
+        const healthEmoji = driftScore >= 70 ? "✅" : driftScore >= 40 ? "⚠️" : "❌"
+        lines.push(`${healthEmoji} Drift Score: ${driftScore}/100`)
+        lines.push(``)
+
+        lines.push(`## Chain Integrity`)
+        if (chainBreaks.length === 0) {
+          lines.push(`✅ Hierarchy chain is intact.`)
+        } else {
+          chainBreaks.forEach(b => lines.push(`❌ ${b.message}`))
+        }
+        lines.push(``)
+
+        if (anchorsState.anchors.length > 0) {
+          lines.push(`## Anchor Compliance`)
+          lines.push(`Verify your work respects these immutable constraints:`)
+          anchorsState.anchors.forEach(a => lines.push(`  ☐ [${a.key}]: ${a.value}`))
+          lines.push(``)
+        }
+
+        lines.push(`## Recommendation`)
+        if (driftScore >= 70 && chainBreaks.length === 0) {
+          lines.push(`✅ On track. Continue working.`)
+        } else if (driftScore >= 40) {
+          lines.push(`⚠ Some drift detected. Consider using map_context to update your focus.`)
+        } else {
+          lines.push(`❌ Significant drift. Use map_context to re-focus, or compact_session to reset.`)
+        }
+        lines.push(`=== END DRIFT REPORT ===`)
+      }
+
+      if (!args.include_drift) {
+        lines.push(``)
+        lines.push(`→ Use scan_hierarchy with include_drift=true for alignment analysis, or think_back for a full context refresh.`)
+      }
+
+      if (args.json) {
+        const data: Record<string, unknown> = {
+          session: { id: state.session.id, mode: state.session.mode, status: state.session.governance_status },
+          hierarchy: { trajectory: state.hierarchy.trajectory, tactic: state.hierarchy.tactic, action: state.hierarchy.action },
+          metrics: { turns: state.metrics.turn_count, drift_score: state.metrics.drift_score, files: state.metrics.files_touched.length, context_updates: state.metrics.context_updates },
+          anchors: anchorsState.anchors.map(a => ({ key: a.key, value: a.value })),
+        }
+        if (args.include_drift) {
+          const chainBreaks = detectChainBreaks(state)
+          data.drift = { score: calculateDriftScore(state), chain_intact: chainBreaks.length === 0, breaks: chainBreaks.map(b => b.message) }
+        }
+        return JSON.stringify(data, null, 2)
+      }
+
+      return lines.join('\n')
     },
   });
 }

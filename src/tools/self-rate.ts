@@ -15,7 +15,7 @@ import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
 import { createStateManager } from "../lib/persistence.js"
 import { addSelfRating } from "../schemas/brain-state.js"
 import { createLogger } from "../lib/logging.js"
-import { join } from "node:path"
+import { getEffectivePaths } from "../lib/paths.js"
 
 export function createSelfRateTool(directory: string): ToolDefinition {
   return tool({
@@ -40,7 +40,7 @@ export function createSelfRateTool(directory: string): ToolDefinition {
     async execute(args, _context) {
       const stateManager = createStateManager(directory)
       const log = await createLogger(
-        join(directory, ".hivemind", "logs"),
+        getEffectivePaths(directory).logsDir,
         "self-rate"
       )
 

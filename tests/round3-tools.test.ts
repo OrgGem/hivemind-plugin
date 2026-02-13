@@ -23,11 +23,12 @@ import type { AnchorsState } from "../src/lib/anchors.js"
 import { createScanHierarchyTool } from "../src/tools/scan-hierarchy.js"
 import { createSaveAnchorTool } from "../src/tools/save-anchor.js"
 import { createThinkBackTool } from "../src/tools/think-back.js"
-import { createCheckDriftTool } from "../src/tools/check-drift.js"
+// check_drift absorbed into scan_hierarchy (include_drift=true)
 import { createStateManager } from "../src/lib/persistence.js"
 import { createBrainState } from "../src/schemas/brain-state.js"
 import { createConfig } from "../src/schemas/config.js"
 import { initializePlanningDirectory, writeActiveMd } from "../src/lib/planning-fs.js"
+import { getEffectivePaths } from "../src/lib/paths.js"
 
 // ─── Harness ─────────────────────────────────────────────────────────
 
@@ -227,7 +228,7 @@ async function main() {
   await test_scanHierarchy()
   await test_saveAnchor()
   await test_thinkBack()
-  await test_checkDrift()
+  await test_scanDrift()
 
   process.stderr.write(`\n=== Round 3: ${passed} passed, ${failed_} failed ===\n`)
   process.exit(failed_ > 0 ? 1 : 0)
@@ -249,7 +250,7 @@ async function test_saveAnchor() {
     const tool = createSaveAnchorTool(tmpDir1)
     await tool.execute({ key: "DB_SCHEMA", value: "PostgreSQL with pgvector" })
 
-    const anchorsPath = join(tmpDir1, ".hivemind", "anchors.json")
+    const anchorsPath = getEffectivePaths(tmpDir1).anchors
     assert(
       existsSync(anchorsPath),
       "save_anchor saves to anchors.json"
@@ -498,19 +499,19 @@ async function test_thinkBack() {
   }
 }
 
-// ─── check_drift Tests (6 assertions) ──────────────────────────────
+// ─── scan_hierarchy include_drift Tests (6 assertions) ─────────────
 
-async function test_checkDrift() {
-  process.stderr.write("\n--- check_drift: drift report ---\n")
+async function test_scanDrift() {
+  process.stderr.write("\n--- scan_hierarchy include_drift: drift report ---\n")
 
   // 1. Returns error when no session
   const tmpDir1 = makeTmpDir()
   try {
-    const tool = createCheckDriftTool(tmpDir1)
-    const result = await tool.execute({})
+    const tool = createScanHierarchyTool(tmpDir1)
+    const result = await tool.execute({ include_drift: true })
     assert(
       result.includes("No active session"),
-      "check_drift returns error when no session"
+      "scan_hierarchy+drift returns error when no session"
     )
   } finally {
     cleanTmpDir(tmpDir1)
@@ -527,18 +528,17 @@ async function test_checkDrift() {
     const stateManager = createStateManager(tmpDir2)
     await stateManager.save(brainState)
 
-    const tool = createCheckDriftTool(tmpDir2)
-    const result = await tool.execute({})
-    // With 0 turns and 5 updates: score = 100 - 0 + min(20, 10) = 100 → ✅
+    const tool = createScanHierarchyTool(tmpDir2)
+    const result = await tool.execute({ include_drift: true })
     assert(
       result.includes("✅") && result.includes("Drift Score:") && result.includes("/100"),
-      "check_drift shows drift score with emoji"
+      "scan_hierarchy+drift shows drift score with emoji"
     )
   } finally {
     cleanTmpDir(tmpDir2)
   }
 
-  // 3. Shows trajectory alignment
+  // 3. Shows drift report section
   const tmpDir3 = makeTmpDir()
   try {
     const config = createConfig({ governance_mode: "assisted" })
@@ -549,13 +549,11 @@ async function test_checkDrift() {
     const stateManager = createStateManager(tmpDir3)
     await stateManager.save(brainState)
 
-    const tool = createCheckDriftTool(tmpDir3)
-    const result = await tool.execute({})
+    const tool = createScanHierarchyTool(tmpDir3)
+    const result = await tool.execute({ include_drift: true })
     assert(
-      result.includes("Original: Build auth system") &&
-      result.includes("Current tactic: JWT implementation") &&
-      result.includes("Current action: Write tests"),
-      "check_drift shows trajectory alignment"
+      result.includes("DRIFT REPORT") && result.includes("Chain Integrity"),
+      "scan_hierarchy+drift shows drift report section"
     )
   } finally {
     cleanTmpDir(tmpDir3)
@@ -572,11 +570,11 @@ async function test_checkDrift() {
     const stateManager = createStateManager(tmpDir4)
     await stateManager.save(brainState)
 
-    const tool = createCheckDriftTool(tmpDir4)
-    const result = await tool.execute({})
+    const tool = createScanHierarchyTool(tmpDir4)
+    const result = await tool.execute({ include_drift: true })
     assert(
       result.includes("Hierarchy chain is intact"),
-      "check_drift shows chain integrity pass when intact"
+      "scan_hierarchy+drift shows chain integrity pass when intact"
     )
   } finally {
     cleanTmpDir(tmpDir4)
@@ -593,11 +591,11 @@ async function test_checkDrift() {
     const stateManager = createStateManager(tmpDir5)
     await stateManager.save(brainState)
 
-    const tool = createCheckDriftTool(tmpDir5)
-    const result = await tool.execute({})
+    const tool = createScanHierarchyTool(tmpDir5)
+    const result = await tool.execute({ include_drift: true })
     assert(
       result.includes("❌") && result.includes("no parent tactic"),
-      "check_drift shows chain integrity fail when broken"
+      "scan_hierarchy+drift shows chain integrity fail when broken"
     )
   } finally {
     cleanTmpDir(tmpDir5)
@@ -611,18 +609,16 @@ async function test_checkDrift() {
     brainState.hierarchy.trajectory = "Test"
     brainState.hierarchy.tactic = "Test tactic"
     brainState.hierarchy.action = "Test action"
-    // High turns = low drift score (capped at 50 penalty → score = 50)
     brainState.metrics.turn_count = 15
     brainState.metrics.context_updates = 0
     const stateManager = createStateManager(tmpDir6)
     await stateManager.save(brainState)
 
-    const tool = createCheckDriftTool(tmpDir6)
-    const result = await tool.execute({})
-    // 15 turns * 5 = 75 → capped at 50 penalty, 0 bonus → score = 50 → ⚠ range
+    const tool = createScanHierarchyTool(tmpDir6)
+    const result = await tool.execute({ include_drift: true })
     assert(
       result.includes("Some drift detected") && result.includes("map_context"),
-      "check_drift shows recommendation based on drift score"
+      "scan_hierarchy+drift shows recommendation based on drift score"
     )
   } finally {
     cleanTmpDir(tmpDir6)

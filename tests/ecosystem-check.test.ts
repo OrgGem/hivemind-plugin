@@ -10,6 +10,7 @@ import { join } from "node:path"
 import { readFileSync } from "node:fs"
 import { initProject } from "../src/cli/init.js"
 import { createDeclareIntentTool } from "../src/tools/declare-intent.js"
+import { getEffectivePaths } from "../src/lib/paths.js"
 
 let passed = 0
 let failed_ = 0
@@ -75,7 +76,7 @@ async function test_semantic_validation_fails_on_invalid_tree() {
     const declareIntent = createDeclareIntentTool(dir)
     await declareIntent.execute({ mode: "plan_driven", focus: "Create tree" })
 
-    const hierarchyPath = join(dir, ".hivemind", "hierarchy.json")
+    const hierarchyPath = getEffectivePaths(dir).hierarchy
     const tree = JSON.parse(readFileSync(hierarchyPath, "utf-8"))
 
     // Corrupt hierarchy semantics:

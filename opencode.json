@@ -5,7 +5,7 @@
   ],
   "agent": {
     "explore": {
-      "model": "glm/zai-coding-plan/glm-4.7",
+      "model": "zai-coding-plan/glm-4.7",
       "mode": "subagent",
       "description": "codebase exploration, investigation",
       "temperature": 0.1

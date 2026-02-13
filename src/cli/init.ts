@@ -11,7 +11,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { copyFile, rm } from "node:fs/promises"
+import { copyFile, mkdir, rm } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
@@ -21,6 +21,8 @@ import { createConfig, isValidGovernanceMode, isValidLanguage, isValidExpertLeve
 import { createBrainState, generateSessionId } from "../schemas/brain-state.js"
 import { createStateManager, saveConfig } from "../lib/persistence.js"
 import { initializePlanningDirectory } from "../lib/planning-fs.js"
+import { getEffectivePaths } from "../lib/paths.js"
+import { migrateIfNeeded } from "../lib/migrate.js"
 
 // ── HiveMind Section for AGENTS.md / CLAUDE.md ──────────────────────────
 
@@ -54,15 +56,14 @@ This project uses **HiveMind** for AI session management. It prevents drift, tra
    compact_session({ summary: "What was accomplished" })
    \`\`\`
 
-### Available Tools (14)
+### Available Tools (10)
 
 | Group | Tools |
 |-------|-------|
 | Core | \`declare_intent\`, \`map_context\`, \`compact_session\` |
-| Self-Awareness | \`self_rate\` |
-| Cognitive Mesh | \`scan_hierarchy\`, \`save_anchor\`, \`think_back\`, \`check_drift\` |
-| Memory | \`save_mem\`, \`list_shelves\`, \`recall_mems\` |
-| Hierarchy | \`hierarchy_prune\`, \`hierarchy_migrate\` |
+| Cognitive Mesh | \`scan_hierarchy\`, \`save_anchor\`, \`think_back\` |
+| Memory | \`save_mem\`, \`recall_mems\` |
+| Hierarchy | \`hierarchy_manage\` |
 | Delegation | \`export_cycle\` |
 
 ### Why It Matters
@@ -74,8 +75,8 @@ This project uses **HiveMind** for AI session management. It prevents drift, tra
 
 ### State Files
 
-- \`.hivemind/brain.json\` — Machine state (do not edit manually)
-- \`.hivemind/hierarchy.json\` — Decision tree
+- \`.hivemind/state/brain.json\` — Machine state (do not edit manually)
+- \`.hivemind/state/hierarchy.json\` — Decision tree
 - \`.hivemind/sessions/\` — Session files and archives
 
 ${HIVEMIND_SECTION_END_MARKER}
@@ -212,8 +213,8 @@ export async function initProject(
   directory: string,
   options: InitOptions = {}
 ): Promise<void> {
-  const hivemindDir = join(directory, ".hivemind")
-  const brainPath = join(hivemindDir, "brain.json")
+  let p = getEffectivePaths(directory)
+  const hivemindDir = p.root
 
   // --force: Remove existing .hivemind directory for clean re-init
   if (options.force) {
@@ -224,6 +225,14 @@ export async function initProject(
       }
     }
   }
+
+  const migration = await migrateIfNeeded(directory)
+  if (migration.migrated && !options.silent) {
+    log(`🔄 Migrated legacy .hivemind structure (${migration.movedFiles.length} files moved)`)
+  }
+
+  p = getEffectivePaths(directory)
+  const brainPath = p.brain
 
   // Guard: Check brain.json existence, not just directory.
   // The directory may exist from logger side-effects without full initialization.
@@ -323,10 +332,11 @@ export async function initProject(
 
   // Copy 10 Commandments to .hivemind
   const commandmentsSource = join(__dirname, "..", "..", "docs", "10-commandments.md")
-  const commandmentsDest = join(hivemindDir, "10-commandments.md")
+  const commandmentsDest = join(p.docsDir, "10-commandments.md")
+  await mkdir(p.docsDir, { recursive: true })
   await copyFile(commandmentsSource, commandmentsDest)
   if (!options.silent) {
-    log(`  ✓ Copied 10 Commandments to ${hivemindDir}/`)
+    log(`  ✓ Copied 10 Commandments to ${p.docsDir}/`)
   }
 
   // Save config
@@ -348,16 +358,20 @@ export async function initProject(
     log("")
     log("✓ Planning directory created:")
     log(`  ${hivemindDir}/`)
-    log("  ├── 10-commandments.md   (tool design reference)")
+    log("  ├── INDEX.md             (root state entry point)")
+    log("  ├── state/               (brain, hierarchy, anchors, tasks)")
+    log("  ├── memory/              (mems + manifest)")
     log("  ├── sessions/")
-    log("  │   ├── index.md         (project trajectory)")
-    log("  │   ├── active.md        (current session)")
+    log("  │   ├── active/          (current session file)")
     log("  │   ├── manifest.json    (session registry)")
     log("  │   └── archive/         (completed sessions)")
+    log("  ├── plans/               (plan registry)")
+    log("  ├── codemap/             (SOT manifest)")
+    log("  ├── codewiki/            (SOT manifest)")
+    log("  ├── docs/                (10-commandments.md)")
     log("  ├── templates/")
     log("  │   └── session.md       (session template)")
     log("  ├── logs/                (runtime logs)")
-    log("  ├── brain.json           (machine state)")
     log("  └── config.json          (governance settings)")
     log("")
     log(`Session ${sessionId} initialized.`)

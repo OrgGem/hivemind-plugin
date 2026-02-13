@@ -218,6 +218,43 @@ export function hivemindExists(projectRoot: string): boolean {
   return existsSync(join(projectRoot, HIVEMIND_DIR))
 }
 
+// ─── Effective Path Resolution (bridge for pre/post-migration) ───────
+
+/**
+ * Returns the correct paths for the CURRENT structure on disk.
+ *
+ * - If new v2.0.0 structure detected → returns getHivemindPaths() (state/brain.json, memory/mems.json, etc.)
+ * - If legacy flat structure detected → returns HivemindPaths type but with legacy file locations
+ * - If nothing exists (fresh) → returns getHivemindPaths() (new structure for fresh installs)
+ *
+ * All consumers should call this instead of hardcoded join() calls.
+ * When migration runs (Task 4), files move → isNewStructure() flips → paths auto-update.
+ */
+export function getEffectivePaths(projectRoot: string): HivemindPaths {
+  if (isNewStructure(projectRoot)) {
+    return getHivemindPaths(projectRoot)
+  }
+
+  if (!isLegacyStructure(projectRoot)) {
+    // Fresh install or no .hivemind/ yet — use new structure
+    return getHivemindPaths(projectRoot)
+  }
+
+  // Legacy structure detected — return HivemindPaths type with legacy file locations
+  const legacy = getLegacyPaths(projectRoot)
+  const newPaths = getHivemindPaths(projectRoot)
+  return {
+    ...newPaths,
+    // Override state file locations (legacy = flat at root, new = inside state/)
+    brain: legacy.brain,
+    hierarchy: legacy.hierarchy,
+    anchors: legacy.anchors,
+    // Override memory file location (legacy = flat at root, new = inside memory/)
+    mems: legacy.mems,
+    // config stays at root in both structures — no override needed
+  }
+}
+
 // ─── Session Filename Builders ───────────────────────────────────────
 
 /**

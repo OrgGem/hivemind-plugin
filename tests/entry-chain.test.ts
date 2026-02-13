@@ -16,6 +16,7 @@ import { createScanHierarchyTool } from "../src/tools/scan-hierarchy.js"
 import { loadTree, treeExists } from "../src/lib/hierarchy-tree.js"
 import { readManifest } from "../src/lib/planning-fs.js"
 import { loadMems } from "../src/lib/mems.js"
+import { getEffectivePaths } from "../src/lib/paths.js"
 import { mkdtemp, rm, readdir, writeFile, readFile } from "fs/promises"
 import { existsSync, writeFileSync, readFileSync } from "fs"
 import { tmpdir } from "os"
@@ -60,7 +61,7 @@ async function test_init() {
     const sessions = join(hm, "sessions")
 
     assert(existsSync(join(hm, "config.json")), "config.json exists after init")
-    assert(existsSync(join(hm, "brain.json")), "brain.json exists after init")
+    assert(existsSync(getEffectivePaths(dir).brain), "brain.json exists after init")
     assert(existsSync(join(sessions, "index.md")), "index.md exists after init")
     assert(existsSync(join(sessions, "active.md")), "active.md exists after init")
     assert(existsSync(join(hm, "templates", "session.md")), "templates/session.md exists after init")
@@ -108,7 +109,7 @@ async function test_fullChain() {
     )
     assert(activeEntry !== undefined, "manifest points to active per-session file")
     if (activeEntry) {
-      const sessionFile = await readFile(join(dir, ".hivemind", "sessions", activeEntry.file), "utf-8")
+      const sessionFile = await readFile(join(getEffectivePaths(dir).activeDir, activeEntry.file), "utf-8")
       assert(sessionFile.includes("## Hierarchy"), "per-session file preserves hierarchy section")
       assert(sessionFile.includes("## Log"), "per-session file preserves log section")
     }
@@ -333,8 +334,8 @@ async function test_corruptBrainJsonRecovery() {
     // Init project
     await initProject(dir, { governanceMode: "assisted", language: "en", silent: true })
 
-    // Write garbage to brain.json
-    const brainPath = join(dir, ".hivemind", "brain.json")
+    // Write garbage to brain.json (use effective paths — may be state/brain.json)
+    const brainPath = getEffectivePaths(dir).brain
     await writeFile(brainPath, "THIS IS NOT JSON {{{garbage!!!")
 
     // Call declare_intent — should create fresh state, not crash
@@ -496,7 +497,7 @@ async function test_agentsMdInjection() {
       "AGENTS.md contains core tool names"
     )
     assert(
-      agentsMd.includes("Available Tools (14)"),
+      agentsMd.includes("Available Tools (10)"),
       "AGENTS.md contains tool count"
     )
   } finally {
