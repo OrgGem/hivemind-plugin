@@ -13,6 +13,8 @@
  *
  * P3: try/catch — never break compaction
  * Budget-capped ≤500 tokens (~2000 chars)
+ *
+ * FLAW-TOAST-003 FIX: Removed info toast - compaction is transparent operation.
  */
 
 import type { Logger } from "../lib/logging.js"
@@ -25,7 +27,6 @@ import {
   getAncestors,
   treeExists,
 } from "../lib/hierarchy-tree.js"
-import { emitGovernanceToast } from "./soft-governance.js"
 
 /** Budget in characters (~500 tokens at ~4 chars/token) */
 const INJECTION_BUDGET_CHARS = 2000
@@ -165,11 +166,9 @@ export function createCompactionHook(log: Logger, directory: string) {
 
       output.context.push(context)
 
-      await emitGovernanceToast(log, {
-        key: "compaction:info",
-        message: "Compaction context injected. Continue from the preserved hierarchy path.",
-        variant: "info",
-      })
+      // FLAW-TOAST-003 FIX: Removed toast emission
+      // Compaction is a transparent operation - no user notification needed
+      // Context is preserved and available via think_back if needed
 
       await log.debug(`Compaction: injected ${context.length} chars`)
     } catch (error) {

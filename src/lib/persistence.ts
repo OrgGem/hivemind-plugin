@@ -4,11 +4,17 @@
 
 import { readFile, writeFile, mkdir, copyFile } from "fs/promises";
 import { existsSync } from "fs";
-import { dirname, join } from "path";
+import { dirname } from "path";
 import type { BrainState } from "../schemas/brain-state.js";
 import type { HiveMindConfig } from "../schemas/config.js";
+import type { Logger } from "./logging.js";
+import { getEffectivePaths } from "./paths.js";
 import { createBrainState } from "../schemas/brain-state.js";
 import { createConfig } from "../schemas/config.js";
+
+function isNodeError(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && "code" in err
+}
 
 export interface StateManager {
   load(): Promise<BrainState | null>;
@@ -17,8 +23,8 @@ export interface StateManager {
   exists(): boolean;
 }
 
-export function createStateManager(projectRoot: string): StateManager {
-  const brainPath = join(projectRoot, ".hivemind", "brain.json");
+export function createStateManager(projectRoot: string, logger?: Logger): StateManager {
+  const brainPath = getEffectivePaths(projectRoot).brain;
 
   return {
     async load(): Promise<BrainState | null> {
@@ -67,7 +73,15 @@ export function createStateManager(projectRoot: string): StateManager {
         // Migration: remove deprecated sentiment_signals field
         delete (parsed as any).sentiment_signals;
         return parsed;
-      } catch {
+      } catch (err: unknown) {
+        if (isNodeError(err) && err.code === "ENOENT") {
+          return null
+        }
+        if (err instanceof SyntaxError) {
+          await logger?.error(`Brain state JSON parse error at ${brainPath}: ${err.message}`)
+        } else {
+          await logger?.error(`Brain state load error at ${brainPath}: ${err}`)
+        }
         return null;
       }
     },
@@ -106,16 +120,19 @@ export function createStateManager(projectRoot: string): StateManager {
 }
 
 export async function loadConfig(projectRoot: string): Promise<HiveMindConfig> {
-  const configPath = join(projectRoot, ".hivemind", "config.json");
-
+  const configPath = getEffectivePaths(projectRoot).config;
   try {
     if (existsSync(configPath)) {
       const data = await readFile(configPath, "utf-8");
       const parsed = JSON.parse(data);
       return createConfig(parsed);
     }
-  } catch {
-    // Fall through to default
+  } catch (err: unknown) {
+    if (isNodeError(err) && err.code !== "ENOENT") {
+      // Log non-ENOENT errors (JSON parse, permission, etc.) to stderr
+      // since loadConfig has no logger parameter — best-effort observability
+      process.stderr.write(`[hivemind] Config load error at ${configPath}: ${err}\n`)
+    }
   }
   
   return createConfig();
@@ -125,7 +142,7 @@ export async function saveConfig(
   projectRoot: string,
   config: HiveMindConfig
 ): Promise<void> {
-  const configPath = join(projectRoot, ".hivemind", "config.json");
+  const configPath = getEffectivePaths(projectRoot).config;
   await mkdir(dirname(configPath), { recursive: true });
   await writeFile(configPath, JSON.stringify(config, null, 2));
 }

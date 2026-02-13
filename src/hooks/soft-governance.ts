@@ -26,6 +26,7 @@ import { detectChainBreaks } from "../lib/chain-analysis.js"
 import { shouldSuggestCommit } from "../lib/commit-advisor.js"
 import { detectLongSession } from "../lib/long-session.js"
 import { getClient } from "./sdk-context.js"
+import { checkAndRecordToast, resetAllThrottles } from "../lib/toast-throttle.js"
 import {
   classifyTool,
   incrementToolType,
@@ -47,9 +48,6 @@ import {
   type DetectionState,
 } from "../lib/detection.js"
 
-const TOAST_COOLDOWN_MS = 30_000
-const lastToastAt = new Map<string, number>()
-
 type ToastVariant = "info" | "warning" | "error"
 
 function localize(language: "en" | "vi", en: string, vi: string): string {
@@ -60,29 +58,24 @@ function variantFromSeverity(severity: "info" | "warning" | "error"): ToastVaria
   return severity
 }
 
-function shouldEmitToast(key: string, now: number): boolean {
-  const last = lastToastAt.get(key)
-  if (last !== undefined && now - last < TOAST_COOLDOWN_MS) {
-    return false
-  }
-  return true
-}
-
-export function resetToastCooldowns(): void {
-  lastToastAt.clear()
-}
-
+/**
+ * Emit governance toast with centralized throttling.
+ * Uses the toast-throttle utility to prevent noise cascade.
+ */
 export async function emitGovernanceToast(
   log: Logger,
   opts: {
     key: string
     message: string
     variant: ToastVariant
-    now?: number
+    eventType?: string
   },
 ): Promise<boolean> {
-  const now = opts.now ?? Date.now()
-  if (!shouldEmitToast(opts.key, now)) {
+  const eventType = opts.eventType ?? "governance"
+  
+  // Use centralized throttle - 60s cooldown, max 5 per session per event type
+  if (!checkAndRecordToast(eventType, opts.key)) {
+    await log.debug(`Toast throttled: ${opts.key}`)
     return false
   }
 
@@ -99,12 +92,18 @@ export async function emitGovernanceToast(
         variant: opts.variant,
       },
     })
-    lastToastAt.set(opts.key, now)
     return true
   } catch (error: unknown) {
     await log.warn(`Toast dispatch failed for ${opts.key}: ${error}`)
     return false
   }
+}
+
+/**
+ * Reset toast cooldowns - exported for use by other hooks if needed.
+ */
+export function resetToastCooldowns(): void {
+  resetAllThrottles()
 }
 
 function buildIgnoredTriageMessage(language: "en" | "vi", reason: string, action: string): string {
@@ -292,15 +291,17 @@ export function createSoftGovernanceHook(
           acknowledged: counters.acknowledged,
         })
 
+        // Only emit toast on severity escalation (not every occurrence)
         const outOfOrderMessage = localize(
           config.language,
           `Tool ${input.tool} used before prerequisites. Call declare_intent first, then continue.`,
           `Da dung tool ${input.tool} truoc prerequisite. Goi declare_intent truoc roi tiep tuc.`,
         )
         await emitGovernanceToast(log, {
-          key: `out_of_order:${input.tool}:${severity}`,
+          key: `out_of_order:${severity}`,
           message: outOfOrderMessage,
           variant: variantFromSeverity(severity),
+          eventType: "governance",
         })
 
         await log.warn(
@@ -320,6 +321,7 @@ export function createSoftGovernanceHook(
           acknowledged: counters.acknowledged,
         })
 
+        // Only emit toast on severity escalation
         const evidenceMessage = localize(
           config.language,
           `Evidence pressure active. Use think_back and verify before next claim.`,
@@ -329,6 +331,7 @@ export function createSoftGovernanceHook(
           key: `evidence_pressure:${severity}`,
           message: evidenceMessage,
           variant: variantFromSeverity(severity),
+          eventType: "evidence",
         })
       }
 
@@ -361,6 +364,7 @@ export function createSoftGovernanceHook(
           key: "ignored:triage:error",
           message: triage,
           variant: "error",
+          eventType: "ignored",
         })
         await log.warn(`IGNORED evidence: ${formatIgnoredEvidence(ignoredTier.evidence)}`)
       }

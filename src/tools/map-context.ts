@@ -27,9 +27,9 @@ import {
 } from "../schemas/brain-state.js"
 import type { HierarchyLevel, ContextStatus } from "../schemas/hierarchy.js"
 import {
-  readActiveMd,
-  writeActiveMd,
-  updateIndexMd,
+  generateIndexMd,
+  readSessionFile,
+  writeSessionFile,
   readManifest,
   appendToSessionLog,
   updateSessionHierarchy,
@@ -168,52 +168,23 @@ export function createMapContextTool(directory: string): ToolDefinition {
           const hierarchyBody = toActiveMdBody(tree)
           await updateSessionHierarchy(directory, manifest.active_stamp, hierarchyBody)
         }
+
+        const sessionMd = await readSessionFile(directory, manifest.active_stamp)
+        sessionMd.frontmatter = {
+          ...sessionMd.frontmatter,
+          trajectory: state.hierarchy.trajectory || "",
+          tactic: state.hierarchy.tactic || "",
+          action: state.hierarchy.action || "",
+          status,
+          last_activity: new Date().toISOString(),
+          turns: state.metrics.turn_count,
+          drift: state.metrics.drift_score,
+          last_updated: Date.now(),
+        }
+        await writeSessionFile(directory, manifest.active_stamp, sessionMd)
       }
 
-      // === Legacy active.md: Sync for backward compat ===
-      if (args.level === "trajectory") {
-        await updateIndexMd(directory, `[${status.toUpperCase()}] ${args.content}`)
-      } else {
-        const activeMd = await readActiveMd(directory)
-        const levelLabel = args.level === "tactic" ? "Tactic" : "Action"
-        const focusLine = `**${levelLabel}**: ${args.content} [${status.toUpperCase()}]`
-
-        if (activeMd.body.includes("## Current Focus")) {
-          const parts = activeMd.body.split("## Current Focus")
-          const afterFocus = parts[1] || ""
-          const nextSection = afterFocus.indexOf("\n## ")
-          const focusContent =
-            nextSection > -1 ? afterFocus.substring(0, nextSection) : afterFocus
-          const rest =
-            nextSection > -1 ? afterFocus.substring(nextSection) : ""
-
-          activeMd.body =
-            parts[0] +
-            "## Current Focus" +
-            focusContent.trimEnd() +
-            "\n" +
-            focusLine +
-            "\n" +
-            rest
-        } else {
-          activeMd.body += `\n## Current Focus\n${focusLine}\n`
-        }
-
-        activeMd.frontmatter.last_updated = Date.now()
-        await writeActiveMd(directory, activeMd)
-
-        const freshMd = await readActiveMd(directory)
-        const planMarker = "## Plan"
-        if (freshMd.body.includes(planMarker)) {
-          const statusMark = status === "complete" ? "x" : " "
-          const planLine = `- [${statusMark}] [${args.level}] ${args.content}`
-          freshMd.body = freshMd.body.replace(
-            planMarker,
-            `${planMarker}\n${planLine}`
-          )
-          await writeActiveMd(directory, freshMd)
-        }
-      }
+      await generateIndexMd(directory)
 
       return `[${args.level}] "${args.content}" → ${status}\n→ Continue working, or use check_drift to verify alignment.`
     },

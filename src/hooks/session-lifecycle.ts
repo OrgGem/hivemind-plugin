@@ -23,6 +23,8 @@ import type { Logger } from "../lib/logging.js"
 import type { HiveMindConfig } from "../schemas/config.js"
 import { generateAgentBehaviorPrompt } from "../schemas/config.js"
 import { createStateManager, loadConfig } from "../lib/persistence.js"
+import { getEffectivePaths, isLegacyStructure } from "../lib/paths.js"
+import { migrateIfNeeded } from "../lib/migrate.js"
 import {
   createBrainState,
   generateSessionId,
@@ -33,10 +35,12 @@ import {
   readActiveMd,
   resetActiveMd,
   updateIndexMd,
+  readManifest,
 } from "../lib/planning-fs.js"
 import { isSessionStale } from "../lib/staleness.js"
 import { detectChainBreaks } from "../lib/chain-analysis.js"
 import { loadAnchors } from "../lib/anchors.js"
+import { loadMems } from "../lib/mems.js"
 import { detectLongSession } from "../lib/long-session.js"
 import { getToolActivation } from "../lib/tool-activation.js"
 import {
@@ -380,6 +384,82 @@ function generateTeamBehaviorBlock(language: "en" | "vi"): string {
 }
 
 /**
+ * Compiles first-turn context from persistent state.
+ * Fires on turns 0-1 to ensure the agent never starts blind.
+ *
+ * Pulls: anchors summary, mems count, prior session trajectory,
+ * and resume instructions from last compaction report.
+ *
+ * Defers to compaction hook if this is a post-compaction session
+ * (compaction_count > 0 && turn_count <= 1) to avoid duplicate injection.
+ */
+async function compileFirstTurnContext(
+  directory: string,
+  state: import("../schemas/brain-state.js").BrainState
+): Promise<string> {
+  const lines: string[] = ["<hivemind-context>"]
+
+  // Skip if post-compaction — compaction hook handles context injection
+  if ((state.last_compaction_time ?? 0) > 0 && state.metrics.turn_count <= 1) {
+    lines.push("Post-compaction session — context injected by compaction hook.")
+    lines.push("</hivemind-context>")
+    return lines.join("\n")
+  }
+
+  // 1. Anchors summary (budget: 300 chars)
+  try {
+    const anchorsState = await loadAnchors(directory)
+    if (anchorsState.anchors.length > 0) {
+      const anchorSummary = anchorsState.anchors
+        .slice(0, 5)
+        .map((a) => `[${a.key}] ${a.value}`)
+        .join("; ")
+      lines.push(`Anchors (${anchorsState.anchors.length}): ${anchorSummary.slice(0, 280)}`)
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  // 2. Mems count + last 2 summaries (budget: 200 chars)
+  try {
+    const memsState = await loadMems(directory)
+    if (memsState.mems.length > 0) {
+      const recent = memsState.mems.slice(-2).map((m) => m.content.slice(0, 60)).join("; ")
+      lines.push(`Mems (${memsState.mems.length}): ${recent.slice(0, 180)}`)
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  // 3. Prior session trajectory from manifest (budget: 200 chars)
+  try {
+    const manifest = await readManifest(directory)
+    const priorSession = [...manifest.sessions]
+      .reverse()
+      .find((s) => s.status === "archived" || s.status === "compacted")
+    if (priorSession) {
+      const summary = priorSession.summary
+        ? `: ${priorSession.summary.slice(0, 120)}`
+        : ""
+      const trajectory = priorSession.trajectory
+        ? ` | Trajectory: ${priorSession.trajectory.slice(0, 80)}`
+        : ""
+      lines.push(`Prior session (${priorSession.stamp})${trajectory}${summary}`)
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  if (lines.length === 1) {
+    // Only the opening tag — no context to show
+    return ""
+  }
+
+  lines.push("</hivemind-context>")
+  return lines.join("\n")
+}
+
+/**
  * Creates the session lifecycle hook (system prompt transform).
  *
  * Injects current session context into the system prompt:
@@ -387,8 +467,9 @@ function generateTeamBehaviorBlock(language: "en" | "vi"): string {
  *   - Governance status (LOCKED/OPEN)
  *   - Session metrics (drift score, turn count)
  *   - Behavioral bootstrap (when LOCKED, first 2 turns)
+ *   - First-turn context (anchors, mems, prior session — turns 0-1)
  *
- * Budget: ≤2500 chars normally, ≤4000 chars when bootstrap active.
+ * Budget: ≤2500 chars normally, ≤4500 chars when bootstrap active.
  * Sections assembled by priority, lowest dropped if over budget. ADD, not REPLACE.
  */
 export function createSessionLifecycleHook(
@@ -396,7 +477,7 @@ export function createSessionLifecycleHook(
   directory: string,
   _initConfig: HiveMindConfig
 ) {
-  const stateManager = createStateManager(directory)
+  const stateManager = createStateManager(directory, log)
 
   return async (
     input: { sessionID?: string; model?: any },
@@ -405,13 +486,17 @@ export function createSessionLifecycleHook(
     try {
       if (!input.sessionID) return
 
+      if (isLegacyStructure(directory)) {
+        await migrateIfNeeded(directory, log)
+      }
+
       // Rule 6: Re-read config from disk each invocation
       const config = await loadConfig(directory)
 
       // FIRST-RUN DETECTION: If config.json doesn't exist, the user
       // never ran `hivemind init`. Inject setup guidance instead of
       // full governance — teach them how to configure.
-      const configPath = join(directory, ".hivemind", "config.json")
+      const configPath = getEffectivePaths(directory).config
       if (!existsSync(configPath)) {
         const setupBlock = await generateSetupGuidanceBlock(directory)
         output.system.push(setupBlock)
@@ -715,6 +800,7 @@ export function createSessionLifecycleHook(
       // BEHAVIORAL BOOTSTRAP — inject teaching block when session is LOCKED
       // This is the ZERO-cooperation activation path (L7 fix)
       const bootstrapLines: string[] = []
+      const firstTurnContextLines: string[] = []
       const evidenceLines: string[] = []
       const teamLines: string[] = []
       const isBootstrapActive = state.metrics.turn_count <= 2
@@ -722,13 +808,20 @@ export function createSessionLifecycleHook(
         bootstrapLines.push(generateBootstrapBlock(config.governance_mode, config.language))
         evidenceLines.push(generateEvidenceDisciplineBlock(config.language))
         teamLines.push(generateTeamBehaviorBlock(config.language))
+
+        // First-turn context: anchors, mems, prior session (agent never starts blind)
+        const ftContext = await compileFirstTurnContext(directory, state)
+        if (ftContext) {
+          firstTurnContextLines.push(ftContext)
+        }
       }
 
       // Assemble by priority — drop lowest priority sections if over budget
-      // Budget expands to 4000 when bootstrap is active (first turns need teaching)
-      const BUDGET_CHARS = isBootstrapActive ? 4000 : 2500
+      // Budget expands to 4500 when bootstrap is active (first turns need teaching + context)
+      const BUDGET_CHARS = isBootstrapActive ? 4500 : 2500
       const sections = [
         bootstrapLines, // P0: behavioral bootstrap (only when LOCKED, first 2 turns)
+        firstTurnContextLines, // P0.3: first-turn context (anchors, mems, prior session)
         evidenceLines,  // P0.5: evidence discipline from turn 0
         teamLines,      // P0.6: team behavior from turn 0
         onboardingLines, // P0.7: first-run project backbone guidance

@@ -170,9 +170,9 @@ async function test_framework_limited_mode_is_simulated_block() {
     const gate = createToolGateHookInternal(noopLogger, dir, config)
     const result = await gate({ sessionID: "test-session", tool: "write" })
 
-    assert(result.allowed, "limited mode remains non-blocking (simulated block only)")
-    assert(result.warning?.includes("LIMITED MODE") === true, "limited mode warning includes simulated mode label")
-    assert(result.warning?.includes("rollback guidance") === true, "limited mode warning includes rollback guidance")
+    assert(result.allowed, "limited mode remains non-blocking (advisory only)")
+    assert(result.warning?.includes("Governance advisory") === true || result.warning?.includes("Framework conflict") === true, "limited mode warning includes framework advisory")
+    assert(result.warning?.includes("framework selection") === true, "limited mode warning includes framework selection guidance")
   } finally {
     await cleanup()
   }
@@ -196,8 +196,8 @@ async function test_framework_simulated_pause_is_non_blocking() {
     const result = await gate({ sessionID: "test-session", tool: "edit" })
 
     assert(result.allowed, "simulated pause does not hard-deny tool execution")
-    assert(result.warning?.includes("SIMULATED PAUSE") === true, "simulated pause warning includes mode label")
-    assert(result.warning?.includes("rollback guidance") === true, "simulated pause warning includes rollback guidance")
+    assert(result.warning?.includes("Governance advisory") === true || result.warning?.includes("Framework conflict") === true, "simulated pause warning includes framework advisory")
+    assert(result.warning?.includes("framework selection") === true, "simulated pause warning includes framework selection guidance")
   } finally {
     await cleanup()
   }

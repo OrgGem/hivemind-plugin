@@ -14,15 +14,14 @@
  *   - Creates root node in hierarchy tree (hierarchy.json)
  *   - Instantiates per-session file from template ({stamp}.md)
  *   - Registers session in manifest (sessions/manifest.json)
- *   - Still updates legacy active.md for backward compat
  */
 
 import { tool, type ToolDefinition } from "@opencode-ai/plugin/tool"
 import { existsSync } from "fs"
 import { writeFile } from "fs/promises"
 import { join } from "path"
-import { stringify } from "yaml"
 import { createStateManager, loadConfig } from "../lib/persistence.js"
+import { buildSessionFilename, getEffectivePaths } from "../lib/paths.js"
 import {
   createBrainState,
   generateSessionId,
@@ -32,9 +31,9 @@ import {
 import type { SessionMode } from "../schemas/brain-state.js"
 import {
   initializePlanningDirectory,
+  generateIndexMd,
   instantiateSession,
   registerSession,
-  getPlanningPaths,
 } from "../lib/planning-fs.js"
 import {
   createNode,
@@ -68,7 +67,7 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
     async execute(args, _context) {
       if (!args.focus?.trim()) return "ERROR: focus cannot be empty. Describe what you're working on."
 
-      const configPath = join(directory, ".hivemind", "config.json")
+      const configPath = getEffectivePaths(directory).config
       if (!existsSync(configPath)) {
         return [
           "ERROR: HiveMind is not configured for this project.",
@@ -119,7 +118,7 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
       await stateManager.save(state)
 
       // === Per-session file: Instantiate from template ===
-      const sessionFileName = `${stamp}.md`
+      const sessionFileName = buildSessionFilename(now, args.mode, args.focus)
       const hierarchyBody = toActiveMdBody(tree)
       const sessionContent = instantiateSession({
         sessionId: state.session.id,
@@ -127,51 +126,24 @@ export function createDeclareIntentTool(directory: string): ToolDefinition {
         mode: args.mode,
         governanceStatus: "OPEN",
         created: now.getTime(),
+        trajectory: args.focus,
+        linkedPlans: [],
+        turns: state.metrics.turn_count,
+        drift: state.metrics.drift_score,
         hierarchyBody,
       })
 
       // Write per-session file
-      const paths = getPlanningPaths(directory)
-      await writeFile(join(paths.sessionsDir, sessionFileName), sessionContent)
+      await writeFile(join(getEffectivePaths(directory).activeDir, sessionFileName), sessionContent)
 
       // Register in manifest
-      await registerSession(directory, stamp, sessionFileName)
-
-      // === Legacy active.md: Update for backward compat ===
-      const legacyFrontmatter = {
-        session_id: state.session.id,
-        stamp,
+      await registerSession(directory, stamp, sessionFileName, {
+        created: now.getTime(),
         mode: args.mode,
-        governance_status: "OPEN",
-        start_time: state.session.start_time,
-        last_updated: Date.now(),
-        date: state.session.date,
-        meta_key: state.session.meta_key,
-        role: state.session.role,
-        by_ai: state.session.by_ai,
-      }
-      const legacyBody = [
-        "# Active Session",
-        "",
-        "## Current Focus",
-        `**Mode**: ${args.mode}`,
-        `**Focus**: ${args.focus}`,
-        args.reason ? `**Reason**: ${args.reason}` : "",
-        "",
-        "## Plan",
-        `- [ ] ${args.focus}`,
-        "",
-        "## Completed",
-        "<!-- Items marked [x] get archived -->",
-        "",
-        "## Notes",
-        "<!-- Scratchpad - anything goes -->",
-      ]
-        .filter(Boolean)
-        .join("\n")
+        trajectory: args.focus,
+      })
 
-      const legacyContent = `---\n${stringify(legacyFrontmatter)}---\n\n${legacyBody}`
-      await writeFile(paths.activePath, legacyContent)
+      await generateIndexMd(directory)
 
       let response = `Session: "${args.focus}". Mode: ${args.mode}. Status: OPEN. Stamp: ${stamp}.`
       if (oldTrajectory && oldTrajectory !== args.focus) {

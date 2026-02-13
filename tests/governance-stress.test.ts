@@ -96,13 +96,15 @@ async function testStressConditions() {
 
     const staleState = await stateManager.load()
     if (staleState) {
-      staleState.metrics.drift_score = 40
+      staleState.metrics.drift_score = 20  // Below 30 threshold
+      staleState.metrics.turn_count = 12   // Above 10 turn threshold
       staleState.session.last_activity = Date.now() - 5 * 86_400_000
       await stateManager.save(staleState)
     }
+    resetToastCooldowns()
     const eventHandler = createEventHandler(noopLogger, dir)
     await eventHandler({ event: { type: "session.idle", properties: { sessionID: "stress" } } as any })
-    check(toasts.some((t) => t.message.includes("Session idle")), "GOV-05 session.idle emits stale-session toast")
+    check(toasts.some((t) => t.message.includes("Drift risk detected")), "GOV-05 session.idle emits drift toast when score < 30")
 
     const strictPromptOut = { system: [] as string[] }
     const strictPromptHook = createSessionLifecycleHook(noopLogger, dir, strict)
@@ -128,13 +130,13 @@ async function testStressConditions() {
     await saveConfig(dir, limitedConfig)
     const gateLimited = createToolGateHookInternal(noopLogger, dir, limitedConfig)
     const limitedResult = await gateLimited({ sessionID: "stress", tool: "write" })
-    check(limitedResult.allowed && limitedResult.warning?.includes("LIMITED MODE") === true, "Limited-mode conflict path is simulated block, not hard deny")
+    check(limitedResult.allowed && (limitedResult.warning?.includes("Governance advisory") === true || limitedResult.warning?.includes("Framework conflict") === true), "Limited-mode conflict path is advisory, not hard deny")
 
     const pauseConfig = createConfig({ governance_mode: "strict", automation_level: "retard" })
     await saveConfig(dir, pauseConfig)
     const gatePause = createToolGateHookInternal(noopLogger, dir, pauseConfig)
     const pauseResult = await gatePause({ sessionID: "stress", tool: "edit" })
-    check(pauseResult.allowed && pauseResult.warning?.includes("SIMULATED PAUSE") === true && pauseResult.warning?.includes("rollback guidance") === true, "Simulated-pause path includes rollback guidance without hard denial")
+    check(pauseResult.allowed && (pauseResult.warning?.includes("Governance advisory") === true || pauseResult.warning?.includes("Framework conflict") === true), "Simulated-pause path includes framework advisory without hard denial")
 
     const sessionLifecycleSource = await readFile(join(process.cwd(), "src/hooks/session-lifecycle.ts"), "utf-8")
     check(

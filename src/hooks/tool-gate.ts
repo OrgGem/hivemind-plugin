@@ -1,13 +1,13 @@
 /**
- * Tool Gate Hook — Configurable governance enforcement.
+ * Tool Gate Hook — Advisory-only governance enforcement.
  *
- * Intercepts tool calls and applies governance based on mode:
- *   - strict: blocks writes until declare_intent called
- *   - assisted: warns but allows
- *   - permissive: silently allows, tracks for metrics
+ * Intercepts tool calls and provides governance guidance:
+ *   - strict: advisory warnings until declare_intent called
+ *   - assisted: warnings and guidance
+ *   - permissive: silently tracks for metrics
  *
- * NOTE: In OpenCode v1.1+, tool.execute.before cannot block execution.
- * This hook provides governance through warnings and tracking only.
+ * IMPORTANT: This hook NEVER blocks execution.
+ * All responses are advisory-only per HC1 compliance.
  *
  * P3: try/catch — never break tool execution
  * P5: Config re-read from disk each invocation (Rule 6)
@@ -25,6 +25,7 @@ import {
 import { createStateManager, loadConfig } from "../lib/persistence.js"
 import { checkComplexity } from "../lib/complexity.js"
 import { detectFrameworkContext } from "../lib/framework-context.js"
+import { checkAndRecordToast } from "../lib/toast-throttle.js"
 
 /** Tools that are always allowed regardless of governance state */
 const EXEMPT_TOOLS = new Set([
@@ -39,7 +40,7 @@ const EXEMPT_TOOLS = new Set([
   "bash", "webfetch", "task", "skill", "todowrite", "google_search",
 ])
 
-/** Write/edit tools that governance should gate */
+/** Write/edit tools that governance should advise on */
 const WRITE_TOOLS = new Set([
   "write", "edit",
 ])
@@ -60,27 +61,22 @@ function isWriteTool(toolName: string): boolean {
   return WRITE_TOOLS.has(toolName)
 }
 
-function getFrameworkConflictLevel(config: HiveMindConfig): "warn-only" | "limited-mode" | "simulated-pause" {
-  if (config.governance_mode === "permissive") {
-    return "warn-only"
-  }
-
-  if (config.governance_mode === "strict" && (config.automation_level === "full" || config.automation_level === "retard")) {
-    return "simulated-pause"
-  }
-
-  return "limited-mode"
-}
-
-function buildSimulatedBlockMessage(guidance: string, level: "limited-mode" | "simulated-pause", toolName: string): string {
-  const modeLabel = level === "simulated-pause" ? "SIMULATED PAUSE" : "LIMITED MODE"
-  return `${guidance} ${modeLabel}: execution is flagged as simulated block (no hard-deny). rollback guidance: if ${toolName} changed files, revert those edits after selecting framework metadata and rerun.`
+/**
+ * Build advisory message for framework conflict.
+ * Replaces pseudo-blocking language with clear guidance.
+ */
+function buildFrameworkAdvisory(guidance: string, toolName: string): string {
+  return `Governance advisory: ${guidance} Tool '${toolName}' proceeding. Consider resolving framework selection for cleaner tracking.`
 }
 
 export interface ToolGateResult {
-  allowed: boolean
-  error?: string
+  allowed: boolean  // Always true - advisory only
   warning?: string
+  signal?: {
+    type: "governance" | "drift" | "framework" | "complexity"
+    severity: "info" | "warning" | "advisory"
+    message: string
+  }
 }
 
 /**
@@ -115,7 +111,7 @@ export function createToolGateHook(
       // Load brain state
       let state = await stateManager.load()
 
-      // Framework conflict gate (GOV-06/GOV-07)
+      // Framework conflict gate (GOV-06/GOV-07) - Advisory only
       const frameworkContext = await detectFrameworkContext(directory)
       if (frameworkContext.mode === "both") {
         const selection = state?.framework_selection
@@ -123,42 +119,42 @@ export function createToolGateHook(
         const hasGsdSelection = selection?.choice === "gsd" && selection.active_phase.trim().length > 0
         const hasSpecSelection = selection?.choice === "spec-kit" && selection.active_spec_path.trim().length > 0
         const hasSelectionMetadata = selectedFramework && (hasGsdSelection || hasSpecSelection)
-        const conflictLevel = getFrameworkConflictLevel(config)
 
         if (!hasSelectionMetadata) {
           const acceptedOverrideOnly = (selection?.acceptance_note?.trim().length ?? 0) > 0
           const guidanceSuffix = acceptedOverrideOnly
-            ? " Override note recorded; framework selection metadata is still required."
+            ? " Override note recorded; framework selection metadata is still recommended."
             : ""
           const guidance = `Framework conflict: both .planning and .spec-kit detected. Consolidate first, then choose framework via locked menu metadata (active_phase or active_spec_path).${guidanceSuffix}`
 
-          if (conflictLevel === "warn-only") {
+          // Advisory only - no blocking
+          if (!CONFLICT_SAFE_TOOLS.has(toolName)) {
             return {
               allowed: true,
-              warning: guidance,
-            }
-          }
-
-          if (!CONFLICT_SAFE_TOOLS.has(toolName)) {
-            if (conflictLevel === "limited-mode" || conflictLevel === "simulated-pause") {
-              const simulatedMessage = buildSimulatedBlockMessage(guidance, conflictLevel, toolName)
-              return {
-                allowed: true,
-                warning: simulatedMessage,
-              }
+              warning: buildFrameworkAdvisory(guidance, toolName),
+              signal: {
+                type: "framework",
+                severity: "advisory",
+                message: guidance,
+              },
             }
           }
         }
       }
 
-      // No state = no session initialized yet
+      // No state = no session initialized yet - Advisory only
       if (!state) {
         switch (config.governance_mode) {
           case "strict":
+            // HC1 COMPLIANCE: Always allow, just advise
             return {
-              allowed: false,
-              error:
-                "SESSION NOT INITIALIZED. Use 'declare_intent' to start a session.",
+              allowed: true,
+              warning: "No session initialized. Consider using declare_intent for better tracking.",
+              signal: {
+                type: "governance",
+                severity: "advisory",
+                message: "Session not initialized. Use declare_intent to start a tracked session.",
+              },
             }
           case "assisted":
             await log.warn(
@@ -173,15 +169,20 @@ export function createToolGateHook(
         }
       }
 
-      // Session is locked — governance gate
+      // Session is locked — governance gate - Advisory only
       if (state && isSessionLocked(state)) {
         switch (config.governance_mode) {
           case "strict":
             if (isWriteTool(toolName)) {
+              // HC1 COMPLIANCE: Always allow, just advise
               return {
-                allowed: false,
-                error:
-                  "SESSION LOCKED. Use 'declare_intent' to unlock before writing.",
+                allowed: true,
+                warning: "Session locked. Consider using declare_intent to unlock for better tracking.",
+                signal: {
+                  type: "governance",
+                  severity: "advisory",
+                  message: "Write tool used while session locked. Declare intent for proper tracking.",
+                },
               }
             }
             return { allowed: true }
@@ -192,8 +193,7 @@ export function createToolGateHook(
               )
               return {
                 allowed: true,
-                warning:
-                  "Session locked. Declare your intent for better tracking.",
+                warning: "Session locked. Declare your intent for better tracking.",
               }
             }
             return { allowed: true }
@@ -246,7 +246,7 @@ export function createToolGateHook(
           await stateManager.save(state)
         }
 
-        // Check drift warning
+        // Check drift warning - Advisory only
         if (
           shouldTriggerDriftWarning(
             driftCheckState,
@@ -261,6 +261,11 @@ export function createToolGateHook(
             return {
               allowed: true,
               warning: `Drift detected (${state.metrics.drift_score}/100). Use map_context to re-focus.`,
+              signal: {
+                type: "drift",
+                severity: "warning",
+                message: `High drift score. Consider map_context to realign with intent.`,
+              },
             }
           }
         }
@@ -268,13 +273,25 @@ export function createToolGateHook(
         // Check complexity and show nudge (once per session)
         const complexityCheck = checkComplexity(state)
         if (complexityCheck.isComplex && !state.complexity_nudge_shown) {
-          await log.warn(
-            `[Nudge] ${complexityCheck.message}`
-          )
-          
+          // Throttle complexity toasts to avoid noise
+          if (checkAndRecordToast("complexity", "nudge")) {
+            await log.warn(
+              `[Advisory] ${complexityCheck.message}`
+            )
+          }
+
           // Mark nudge as shown
           state = setComplexityNudgeShown(state)
           await stateManager.save(state)
+
+          return {
+            allowed: true,
+            signal: {
+              type: "complexity",
+              severity: "info",
+              message: complexityCheck.message,
+            },
+          }
         }
       }
 
@@ -305,13 +322,13 @@ export function createToolGateHook(
       tool: input.tool
     })
 
-    // Log warnings/errors (we cannot block execution in OpenCode v1.1+)
-    if (!result.allowed) {
-      await log.error(result.error || "Tool not allowed by governance")
-    } else if (result.warning) {
+    // Log warnings (we never block execution - HC1 compliance)
+    if (result.warning) {
       await log.warn(result.warning)
     }
-    // Note: We cannot block execution, only warn and track
+    if (result.signal) {
+      await log.debug(`Tool gate signal: ${result.signal.type} - ${result.signal.message}`)
+    }
   }
 
   // Expose internal hook for testing

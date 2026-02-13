@@ -18,6 +18,7 @@ import {
 import { existsSync } from "fs"
 import { readFile, mkdtemp, rm } from "fs/promises"
 import { tmpdir } from "os"
+import { getEffectivePaths } from "../src/lib/paths.js"
 import { join } from "path"
 
 // ─── Harness ─────────────────────────────────────────────────────────
@@ -124,11 +125,26 @@ async function test_update_index_md() {
   const dir = await setup()
   await initializePlanningDirectory(dir)
 
+  // Register and archive a session so updateIndexMd has a target for the summary
+  const { registerSession, readManifest, writeManifest } = await import("../src/lib/planning-fs.js")
+  await registerSession(dir, "test-stamp-001", "test-session.md", { mode: "plan_driven" })
+  const manifest = await readManifest(dir)
+  const entry = manifest.sessions.find((s: any) => s.stamp === "test-stamp-001")
+  if (entry) entry.status = "archived"
+  manifest.active_stamp = null
+  await writeManifest(dir, manifest)
+
   await updateIndexMd(dir, "Completed auth implementation")
 
+  // Verify summary stored in manifest
+  const updatedManifest = await readManifest(dir)
+  const archived = updatedManifest.sessions.find((s: any) => s.summary === "Completed auth implementation")
+  assert(archived !== undefined, "summary stored in manifest")
+
+  // Verify root INDEX.md includes the summary
   const paths = getPlanningPaths(dir)
   const content = await readFile(paths.indexPath, "utf-8")
-  assert(content.includes("Completed auth implementation"), "summary appended")
+  assert(content.includes("Completed auth implementation"), "summary in root INDEX.md")
 
   await cleanup()
 }
@@ -167,9 +183,9 @@ async function test_init_project() {
   assert(existsSync(hivemindDir), "hivemind dir created")
   assert(existsSync(join(sessionsDir, "index.md")), "index.md created")
   assert(existsSync(join(sessionsDir, "active.md")), "active.md created")
-  assert(existsSync(join(hivemindDir, "brain.json")), "brain.json created")
+  assert(existsSync(getEffectivePaths(dir).brain), "brain.json created")
   assert(existsSync(join(hivemindDir, "config.json")), "config.json created")
-  assert(existsSync(join(hivemindDir, "10-commandments.md")), "10-commandments.md copied")
+  assert(existsSync(join(hivemindDir, "docs", "10-commandments.md")), "10-commandments.md copied to docs/")
 
   await cleanup()
 }

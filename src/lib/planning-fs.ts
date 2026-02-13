@@ -15,10 +15,27 @@
  * - activePath in PlanningPaths still works (resolves to active session file)
  */
 
-import { readFile, writeFile, mkdir, readdir, unlink } from "fs/promises";
+import { readFile, writeFile, mkdir, readdir, rename } from "fs/promises";
 import { existsSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
 import { parse, stringify } from "yaml";
+import {
+  buildArchiveFilename,
+  getAllDirectories,
+  getEffectivePaths,
+} from "./paths.js";
+import {
+  ensureCoreManifests,
+  createDefaultSessionManifest,
+  deduplicateSessionManifest,
+  readManifest as readTypedManifest,
+  registerSessionInManifest,
+  type SessionManifest as RelationalSessionManifest,
+  type SessionManifestEntry,
+  writeManifest as writeTypedManifest,
+} from "./manifest.js";
+import { createStateManager } from "./persistence.js";
+import { loadAnchors } from "./anchors.js";
 
 // ============================================================
 // Section 1: Path Resolution
@@ -46,22 +63,20 @@ export interface PlanningPaths {
 }
 
 export function getPlanningPaths(projectRoot: string): PlanningPaths {
-  const hivemindDir = join(projectRoot, ".hivemind");
-  const sessionsDir = join(hivemindDir, "sessions");
-  const templatesDir = join(hivemindDir, "templates");
+  const p = getEffectivePaths(projectRoot);
   return {
     projectRoot,
-    planningDir: hivemindDir,
-    indexPath: join(sessionsDir, "index.md"),
-    activePath: join(sessionsDir, "active.md"), // backward compat — may resolve to per-session file
-    archiveDir: join(sessionsDir, "archive"),
-    brainPath: join(hivemindDir, "brain.json"),
-    templatePath: join(templatesDir, "session.md"),
-    manifestPath: join(sessionsDir, "manifest.json"),
-    templatesDir,
-    sessionsDir,
-    hierarchyPath: join(hivemindDir, "hierarchy.json"),
-    logsDir: join(hivemindDir, "logs"),
+    planningDir: p.root,
+    indexPath: p.index,
+    activePath: join(p.sessionsDir, "active.md"), // backward compat — may resolve to per-session file
+    archiveDir: p.archiveDir,
+    brainPath: p.brain,
+    templatePath: p.sessionTemplate,
+    manifestPath: p.sessionsManifest,
+    templatesDir: p.templatesDir,
+    sessionsDir: p.sessionsDir,
+    hierarchyPath: p.hierarchy,
+    logsDir: p.logsDir,
   };
 }
 
@@ -109,18 +124,37 @@ export function instantiateSession(opts: {
   mode: string;
   governanceStatus?: string;
   created?: number;
+  trajectory?: string;
+  tactic?: string;
+  action?: string;
+  linkedPlans?: string[];
+  turns?: number;
+  drift?: number;
   hierarchyBody?: string;
 }): string {
   const now = opts.created ?? Date.now();
   const hierarchyBody = opts.hierarchyBody ?? "No hierarchy declared.";
+  const nowIso = new Date(now).toISOString();
 
   // Build frontmatter
   const frontmatter = {
+    id: opts.sessionId,
     session_id: opts.sessionId,
     stamp: opts.stamp,
+    type: "session",
     mode: opts.mode,
+    governance: opts.governanceStatus ?? "OPEN",
     governance_status: opts.governanceStatus ?? "OPEN",
-    created: now,
+    trajectory: opts.trajectory ?? "",
+    tactic: opts.tactic ?? "",
+    action: opts.action ?? "",
+    status: "active",
+    created: nowIso,
+    last_activity: nowIso,
+    turns: opts.turns ?? 0,
+    drift: opts.drift ?? 100,
+    linked_plans: opts.linkedPlans ?? [],
+    created_epoch: now,
     last_updated: now,
   };
   const yamlContent = stringify(frontmatter);
@@ -144,27 +178,11 @@ ${hierarchyBody}
 // Section 3: Manifest (Session Registry)
 // ============================================================
 
-/** Entry in the session manifest */
-export interface ManifestEntry {
-  /** MiMiHrHrDDMMYYYY stamp */
-  stamp: string;
-  /** Relative filename within sessions/ */
-  file: string;
-  /** Session status */
-  status: "active" | "archived" | "compacted";
-  /** Epoch ms of creation */
-  created: number;
-  /** Optional summary (set on compaction) */
-  summary?: string;
-}
+/** Entry in the session manifest (relational layer type). */
+export type ManifestEntry = SessionManifestEntry;
 
-/** Full manifest structure */
-export interface SessionManifest {
-  /** All sessions ever created */
-  sessions: ManifestEntry[];
-  /** Stamp of the currently active session (null if none) */
-  active_stamp: string | null;
-}
+/** Full manifest structure (relational layer type). */
+export type SessionManifest = RelationalSessionManifest;
 
 /**
  * Read the manifest from disk. Returns empty manifest if not found.
@@ -174,12 +192,11 @@ export interface SessionManifest {
 export async function readManifest(projectRoot: string): Promise<SessionManifest> {
   const paths = getPlanningPaths(projectRoot);
 
-  try {
-    const raw = await readFile(paths.manifestPath, "utf-8");
-    return JSON.parse(raw) as SessionManifest;
-  } catch {
-    return { sessions: [], active_stamp: null };
-  }
+  const manifest = await readTypedManifest<SessionManifest>(
+    paths.manifestPath,
+    createDefaultSessionManifest(),
+  );
+  return deduplicateSessionManifest(manifest);
 }
 
 /**
@@ -192,7 +209,7 @@ export async function writeManifest(
   manifest: SessionManifest
 ): Promise<void> {
   const paths = getPlanningPaths(projectRoot);
-  await writeFile(paths.manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
+  await writeTypedManifest(paths.manifestPath, deduplicateSessionManifest(manifest));
 }
 
 /**
@@ -203,28 +220,27 @@ export async function writeManifest(
 export async function registerSession(
   projectRoot: string,
   stamp: string,
-  fileName: string
+  fileName: string,
+  meta?: {
+    created?: number
+    mode?: string
+    trajectory?: string
+    linkedPlans?: string[]
+  },
 ): Promise<SessionManifest> {
   const manifest = await readManifest(projectRoot);
 
-  // Deactivate any currently active session
-  for (const entry of manifest.sessions) {
-    if (entry.status === "active") {
-      entry.status = "archived";
-    }
-  }
-
-  // Add new entry
-  manifest.sessions.push({
+  const updated = registerSessionInManifest(manifest, {
     stamp,
     file: fileName,
-    status: "active",
-    created: Date.now(),
+    created: meta?.created ?? Date.now(),
+    mode: meta?.mode,
+    trajectory: meta?.trajectory,
+    linked_plans: meta?.linkedPlans ?? [],
   });
-  manifest.active_stamp = stamp;
 
-  await writeManifest(projectRoot, manifest);
-  return manifest;
+  await writeManifest(projectRoot, updated);
+  return updated;
 }
 
 /**
@@ -235,6 +251,7 @@ export async function registerSession(
  */
 export async function getActiveSessionPath(projectRoot: string): Promise<string> {
   const paths = getPlanningPaths(projectRoot);
+  const effective = getEffectivePaths(projectRoot)
   const manifest = await readManifest(projectRoot);
 
   if (manifest.active_stamp) {
@@ -242,7 +259,9 @@ export async function getActiveSessionPath(projectRoot: string): Promise<string>
       (s) => s.stamp === manifest.active_stamp && s.status === "active"
     );
     if (entry) {
-      return join(paths.sessionsDir, entry.file);
+      const activePath = join(effective.activeDir, entry.file)
+      if (existsSync(activePath)) return activePath
+      return join(paths.sessionsDir, entry.file)
     }
   }
 
@@ -281,6 +300,36 @@ export function createFileGuard(stamp: string, lineCount: number): FileGuard {
 // Section 5: Session File I/O (New Architecture)
 // ============================================================
 
+async function resolveSessionFilePathByStamp(
+  projectRoot: string,
+  stamp: string,
+): Promise<string> {
+  const paths = getPlanningPaths(projectRoot)
+  const manifest = await readManifest(projectRoot)
+  const entry = manifest.sessions.find((s) => s.stamp === stamp)
+
+  if (entry) {
+    if (entry.status === "active") {
+      const activePath = join(getEffectivePaths(projectRoot).activeDir, entry.file)
+      if (existsSync(activePath)) return activePath
+    }
+
+    const archivedPath = join(paths.archiveDir, entry.file)
+    if (existsSync(archivedPath)) return archivedPath
+
+    const sessionPath = join(paths.sessionsDir, entry.file)
+    if (existsSync(sessionPath)) return sessionPath
+  }
+
+  const byStampInActiveDir = join(getEffectivePaths(projectRoot).activeDir, `${stamp}.md`)
+  if (existsSync(byStampInActiveDir)) return byStampInActiveDir
+
+  const byStampInSessionsDir = join(paths.sessionsDir, `${stamp}.md`)
+  if (existsSync(byStampInSessionsDir)) return byStampInSessionsDir
+
+  return byStampInActiveDir
+}
+
 /**
  * Read a session file by stamp, returning parsed content.
  * Updates the FileGuard with read metadata.
@@ -291,8 +340,7 @@ export async function readSessionFile(
   projectRoot: string,
   stamp: string
 ): Promise<ActiveMdContent> {
-  const paths = getPlanningPaths(projectRoot);
-  const filePath = join(paths.sessionsDir, `${stamp}.md`);
+  const filePath = await resolveSessionFilePathByStamp(projectRoot, stamp)
 
   try {
     const content = await readFile(filePath, "utf-8");
@@ -315,8 +363,8 @@ export async function writeSessionFile(
   stamp: string,
   content: ActiveMdContent
 ): Promise<void> {
-  const paths = getPlanningPaths(projectRoot);
-  const filePath = join(paths.sessionsDir, `${stamp}.md`);
+  const filePath = await resolveSessionFilePathByStamp(projectRoot, stamp)
+  await mkdir(dirname(filePath), { recursive: true })
 
   const yamlContent = stringify(content.frontmatter);
   const fullContent = `---\n${yamlContent}---\n\n${content.body}`;
@@ -335,8 +383,7 @@ export async function appendToSessionLog(
   stamp: string,
   logEntry: string
 ): Promise<void> {
-  const paths = getPlanningPaths(projectRoot);
-  const filePath = join(paths.sessionsDir, `${stamp}.md`);
+  const filePath = await resolveSessionFilePathByStamp(projectRoot, stamp)
 
   try {
     const content = await readFile(filePath, "utf-8");
@@ -381,8 +428,7 @@ export async function updateSessionHierarchy(
   stamp: string,
   hierarchyBody: string
 ): Promise<void> {
-  const paths = getPlanningPaths(projectRoot);
-  const filePath = join(paths.sessionsDir, `${stamp}.md`);
+  const filePath = await resolveSessionFilePathByStamp(projectRoot, stamp)
 
   try {
     const content = await readFile(filePath, "utf-8");
@@ -414,10 +460,21 @@ export async function updateSessionHierarchy(
 
 export interface ActiveMdContent {
   frontmatter: {
+    id?: string;
     session_id?: string;
     stamp?: string;
+    type?: string;
     mode?: string;
+    governance?: string;
     governance_status?: string;
+    trajectory?: string;
+    tactic?: string;
+    action?: string;
+    status?: string;
+    last_activity?: string;
+    turns?: number;
+    drift?: number;
+    linked_plans?: string[];
     start_time?: number;
     last_updated?: number;
     created?: number;
@@ -433,16 +490,28 @@ export async function initializePlanningDirectory(
   projectRoot: string
 ): Promise<PlanningPaths> {
   const paths = getPlanningPaths(projectRoot);
+  const effective = getEffectivePaths(projectRoot)
 
-  // Create directories (including new ones)
-  await mkdir(paths.planningDir, { recursive: true });
-  await mkdir(paths.archiveDir, { recursive: true });
-  await mkdir(paths.templatesDir, { recursive: true });
-  await mkdir(paths.logsDir, { recursive: true });
+  // Create full v2 directory tree
+  for (const dir of getAllDirectories(projectRoot)) {
+    await mkdir(dir, { recursive: true })
+  }
+
+  // Keep legacy sessions/ helpers for backward compatibility
+  await mkdir(paths.sessionsDir, { recursive: true })
+  await mkdir(paths.archiveDir, { recursive: true })
+
+  // Ensure root and folder manifests exist
+  await ensureCoreManifests(effective)
 
   // Create session template if not exists
   if (!existsSync(paths.templatePath)) {
     await writeFile(paths.templatePath, getSessionTemplate());
+  }
+
+  // Create placeholder tasks file if missing
+  if (!existsSync(effective.tasks)) {
+    await writeFile(effective.tasks, JSON.stringify({ tasks: [], active_task_id: null, updated_at: Date.now() }, null, 2))
   }
 
   // Create manifest if not exists
@@ -450,9 +519,15 @@ export async function initializePlanningDirectory(
     await writeManifest(projectRoot, { sessions: [], active_stamp: null });
   }
 
-  // Create index.md if not exists (legacy — kept for backward compat)
+  // Create root INDEX.md (hop-or-continue entry)
   if (!existsSync(paths.indexPath)) {
-    await writeFile(paths.indexPath, generateIndexTemplate());
+    await generateIndexMd(projectRoot)
+  }
+
+  // Create legacy sessions/index.md if not exists (kept for backward compat)
+  const legacySessionsIndex = join(paths.sessionsDir, "index.md")
+  if (!existsSync(legacySessionsIndex)) {
+    await writeFile(legacySessionsIndex, generateIndexTemplate())
   }
 
   // Create active.md if not exists (legacy — kept for backward compat)
@@ -504,6 +579,23 @@ export function parseActiveMd(content: string): ActiveMdContent {
   return { frontmatter: {}, body: content.trim() };
 }
 
+export function parseSessionFrontmatter(content: string): Record<string, unknown> {
+  return parseActiveMd(content).frontmatter;
+}
+
+export function updateSessionFrontmatter(
+  content: string,
+  updates: Record<string, unknown>
+): string {
+  const parsed = parseActiveMd(content)
+  const nextFrontmatter = {
+    ...parsed.frontmatter,
+    ...updates,
+  }
+  const yamlContent = stringify(nextFrontmatter)
+  return `---\n${yamlContent}---\n\n${parsed.body}`
+}
+
 export async function writeActiveMd(
   projectRoot: string,
   content: ActiveMdContent
@@ -534,6 +626,7 @@ export async function archiveSession(
   content: string
 ): Promise<void> {
   const paths = getPlanningPaths(projectRoot);
+  const effective = getEffectivePaths(projectRoot)
 
   // Check if this is a manifest-based session
   const manifest = await readManifest(projectRoot);
@@ -542,67 +635,140 @@ export async function archiveSession(
   );
 
   if (entry) {
-    // Move per-session file to archive/
-    const srcPath = join(paths.sessionsDir, entry.file);
-    const dstPath = join(paths.archiveDir, entry.file);
+    const sourceCandidates = [
+      join(effective.activeDir, entry.file),
+      join(paths.sessionsDir, entry.file),
+    ]
+    const srcPath = sourceCandidates.find((p) => existsSync(p))
 
-    try {
-      // Write content to archive (may have been updated since instantiation)
-      await writeFile(dstPath, content);
+    const archiveFileName = /^\d{4}-\d{2}-\d{2}-/.test(entry.file)
+      ? entry.file
+      : buildArchiveFilename(new Date(entry.created || Date.now()), entry.mode || "plan_driven", entry.trajectory || "session")
+    const dstPath = join(paths.archiveDir, archiveFileName)
 
-      // Remove source if it exists and is different from dest
-      if (existsSync(srcPath)) {
-        await unlink(srcPath); // Delete archived session file
-      }
-    } catch {
-      // Fallback: just write to archive with legacy naming
-      const timestamp = new Date().toISOString().split("T")[0];
-      const archiveFile = join(paths.archiveDir, `session_${timestamp}_${sessionId}.md`);
-      await writeFile(archiveFile, content);
+    let archiveContent = content
+    archiveContent = updateSessionFrontmatter(archiveContent, {
+      id: entry.stamp,
+      session_id: entry.stamp,
+      stamp: entry.stamp,
+      type: "session",
+      mode: entry.mode ?? "plan_driven",
+      trajectory: entry.trajectory ?? "",
+      status: "archived",
+      last_activity: new Date().toISOString(),
+      linked_plans: entry.linked_plans,
+    })
+
+    if (srcPath && srcPath !== dstPath) {
+      await mkdir(dirname(dstPath), { recursive: true })
+      await rename(srcPath, dstPath)
     }
+    await writeFile(dstPath, archiveContent)
 
-    // Update manifest
-    entry.status = "archived";
-    manifest.active_stamp = null;
-    await writeManifest(projectRoot, manifest);
+    entry.status = "archived"
+    entry.file = archiveFileName
+    manifest.active_stamp = null
+    await writeManifest(projectRoot, manifest)
   } else {
     // Legacy archive
     const timestamp = new Date().toISOString().split("T")[0];
     const archiveFile = join(paths.archiveDir, `session_${timestamp}_${sessionId}.md`);
-    await writeFile(archiveFile, content);
+    await writeFile(
+      archiveFile,
+      updateSessionFrontmatter(content, {
+        id: sessionId,
+        session_id: sessionId,
+        type: "session",
+        status: "archived",
+        last_activity: new Date().toISOString(),
+      })
+    );
   }
+}
+
+export async function generateIndexMd(projectRoot: string): Promise<string> {
+  const paths = getPlanningPaths(projectRoot)
+  const stateManager = createStateManager(projectRoot)
+  const state = await stateManager.load()
+  const manifest = await readManifest(projectRoot)
+  const anchorsState = await loadAnchors(projectRoot)
+
+  const mode = state?.session.mode ?? "(none)"
+  const governance = state?.session.governance_status ?? "(none)"
+  const trajectory = state?.hierarchy.trajectory ?? "(none)"
+  const tactic = state?.hierarchy.tactic ?? "(none)"
+  const turns = state?.metrics.turn_count ?? 0
+  const drift = state?.metrics.drift_score ?? 100
+
+  // Read recent summaries from manifest (authoritative source)
+  const recentSummaries = manifest.sessions
+    .filter((s) => s.summary && (s.status === "archived" || s.status === "compacted"))
+    .sort((a, b) => b.created - a.created)
+    .slice(0, 3)
+    .reverse()
+    .map((s) => {
+      const date = new Date(s.created).toISOString().split("T")[0]
+      return `- ${date}: ${s.summary}`
+    })
+
+  const lines = [
+    "---",
+    "type: index",
+    "structure_version: \"2.0.0\"",
+    `generated: ${new Date().toISOString()}`,
+    "---",
+    "# .hivemind — Context Governance State",
+    "",
+    "## Current State",
+    `- Mode: ${mode} | Governance: ${governance}`,
+    `- Trajectory: ${trajectory}`,
+    `- Tactic: ${tactic}`,
+    `- Turns: ${turns} | Drift: ${drift}/100`,
+    `- Active: ${manifest.active_stamp ?? "(none)"}`,
+    "",
+    "## Quick Navigation",
+    "- sessions/active/",
+    "- sessions/archive/",
+    "- state/",
+    "- memory/mems.json",
+  ]
+
+  for (const anchor of anchorsState.anchors.slice(0, 3)) {
+    lines.push(`- [${anchor.key}] ${anchor.value}`)
+  }
+
+  if (recentSummaries.length > 0) {
+    lines.push("", "## Recent Session Summaries")
+    lines.push(...recentSummaries)
+  }
+
+  const content = lines.slice(0, 30).join("\n") + "\n"
+  await writeFile(paths.indexPath, content)
+  return content
 }
 
 export async function updateIndexMd(
   projectRoot: string,
   summaryLine: string
 ): Promise<void> {
-  const paths = getPlanningPaths(projectRoot);
-
-  try {
-    const content = await readFile(paths.indexPath, "utf-8");
-    const timestamp = new Date().toISOString().split("T")[0];
-    const entry = `- ${timestamp}: ${summaryLine}\n`;
-    const updated = content + entry;
-    await writeFile(paths.indexPath, updated);
-  } catch {
-    // If index doesn't exist, create it
-    await writeFile(paths.indexPath, generateIndexTemplate() + summaryLine + "\n");
-  }
-
-  // Also update manifest summary for the most recent archived session
+  // Update manifest summary for the most recent session without a summary
   try {
     const manifest = await readManifest(projectRoot);
-    const lastArchived = [...manifest.sessions]
+    // Prefer archived/compacted, fall back to any session
+    const target = [...manifest.sessions]
       .reverse()
-      .find((s) => s.status === "archived" || s.status === "compacted");
-    if (lastArchived && !lastArchived.summary) {
-      lastArchived.summary = summaryLine;
+      .find((s) => !s.summary && (s.status === "archived" || s.status === "compacted"))
+      ?? [...manifest.sessions].reverse().find((s) => !s.summary);
+    if (target) {
+      target.summary = summaryLine;
       await writeManifest(projectRoot, manifest);
     }
   } catch {
     // Non-critical — manifest update is best-effort
   }
+
+  // Regenerate root INDEX.md from manifest (authoritative source)
+  await generateIndexMd(projectRoot)
 }
 
 export async function listArchives(projectRoot: string): Promise<string[]> {

@@ -55,8 +55,8 @@ async function test_strict_blocks_write_without_session() {
   const hook = createToolGateHookInternal(noopLogger, dir, config)
   const result = await hook({ sessionID: "test-1", tool: "write" })
 
-  assert(!result.allowed, "strict mode blocks write without session")
-  assert(result.error !== undefined, "strict mode provides error message")
+  assert(result.allowed, "strict mode allows write without session (HC1: advisory only)")
+  assert(result.warning !== undefined, "strict mode provides advisory warning")
 
   await cleanup()
 }
