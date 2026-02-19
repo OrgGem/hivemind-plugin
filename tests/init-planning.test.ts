@@ -334,6 +334,86 @@ async function test_reinit_normalizes_legacy_dot_opencode_config() {
   await cleanup()
 }
 
+async function test_reinit_normalizes_legacy_root_opencode_config() {
+  process.stderr.write("\n--- init: normalizes legacy root opencode.json plugin entries ---\n")
+  const dir = await setup()
+
+  await writeFile(
+    join(dir, "opencode.json"),
+    JSON.stringify({
+      "$schema": "https://opencode.ai/config.json",
+      plugin: ["hivemind-context-governance@2.6.2"],
+    }, null, 2) + "\n",
+    "utf-8"
+  )
+
+  await initProject(dir, { silent: true })
+
+  const rootRaw = await readFile(join(dir, "opencode.json"), "utf-8")
+  const rootConfig = JSON.parse(rootRaw)
+  const plugins = Array.isArray(rootConfig.plugin) ? rootConfig.plugin : []
+  assert(
+    plugins.includes("hivemind-context-governance"),
+    "legacy root opencode.json plugin entry is normalized"
+  )
+  assert(
+    !plugins.some(
+      (value: unknown) =>
+        typeof value === "string" && value.includes("hivemind-context-governance@")
+    ),
+    "legacy root opencode.json has no pinned plugin entries"
+  )
+  assert(
+    !existsSync(join(dir, ".opencode", "opencode.json")),
+    "root legacy config path is preserved when .opencode/opencode.json does not exist"
+  )
+
+  await cleanup()
+}
+
+async function test_init_prefers_project_opencode_when_both_configs_exist() {
+  process.stderr.write("\n--- init: prefers .opencode/opencode.json when both config files exist ---\n")
+  const dir = await setup()
+
+  await mkdir(join(dir, ".opencode"), { recursive: true })
+  await writeFile(
+    join(dir, ".opencode", "opencode.json"),
+    JSON.stringify({
+      "$schema": "https://opencode.ai/config.json",
+      plugin: ["hivemind-context-governance@2.6.2"],
+    }, null, 2) + "\n",
+    "utf-8"
+  )
+  await writeFile(
+    join(dir, "opencode.json"),
+    JSON.stringify({
+      "$schema": "https://opencode.ai/config.json",
+      plugin: ["root-only-plugin"],
+    }, null, 2) + "\n",
+    "utf-8"
+  )
+
+  await initProject(dir, { silent: true })
+
+  const projectRaw = await readFile(join(dir, ".opencode", "opencode.json"), "utf-8")
+  const projectConfig = JSON.parse(projectRaw)
+  const projectPlugins = Array.isArray(projectConfig.plugin) ? projectConfig.plugin : []
+  assert(
+    projectPlugins.includes("hivemind-context-governance"),
+    ".opencode/opencode.json is normalized when both configs exist"
+  )
+
+  const rootRaw = await readFile(join(dir, "opencode.json"), "utf-8")
+  const rootConfig = JSON.parse(rootRaw)
+  const rootPlugins = Array.isArray(rootConfig.plugin) ? rootConfig.plugin : []
+  assert(
+    rootPlugins.includes("root-only-plugin"),
+    "root opencode.json is left unchanged when project config exists"
+  )
+
+  await cleanup()
+}
+
 async function test_init_always_forces_project_opencode_sync_with_overwrite() {
   process.stderr.write("\n--- init: forces .opencode project sync and overwrite ---\n")
   const dir = await setup()
@@ -439,6 +519,8 @@ async function main() {
   await test_init_idempotent()
   await test_reinit_refreshes_assets_and_normalizes_plugin_version()
   await test_reinit_normalizes_legacy_dot_opencode_config()
+  await test_reinit_normalizes_legacy_root_opencode_config()
+  await test_init_prefers_project_opencode_when_both_configs_exist()
   await test_init_always_forces_project_opencode_sync_with_overwrite()
   await test_reinit_removes_legacy_project_plugin_artifacts()
   await test_persistence_roundtrip()
