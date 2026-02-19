@@ -304,6 +304,46 @@ async function test_reinit_refreshes_assets_and_normalizes_plugin_version() {
   await cleanup()
 }
 
+async function test_init_always_forces_project_opencode_sync_with_overwrite() {
+  process.stderr.write("\n--- init: forces .opencode project sync and overwrite ---\n")
+  const dir = await setup()
+
+  await initProject(dir, { silent: true })
+
+  const commandPath = join(dir, ".opencode", "commands", "hivemind-scan.md")
+  await writeFile(commandPath, "# user-customized command\n", "utf-8")
+
+  await initProject(dir, {
+    silent: true,
+    syncTarget: "global",
+    overwriteAssets: false,
+  })
+
+  const commandAfter = await readFile(commandPath, "utf-8")
+  assert(
+    commandAfter !== "# user-customized command\n",
+    "init overwrites existing .opencode command even when overwriteAssets=false"
+  )
+  assert(
+    existsSync(join(dir, ".opencode", "commands", "hivemind-scan.md")),
+    "commands synced to project .opencode"
+  )
+  assert(
+    existsSync(join(dir, ".opencode", "skills", "hivemind-governance", "SKILL.md")),
+    "skills synced to project .opencode"
+  )
+  assert(
+    existsSync(join(dir, ".opencode", "agents", "hivemind-brownfield-orchestrator.md")),
+    "agents synced to project .opencode"
+  )
+  assert(
+    existsSync(join(dir, ".opencode", "workflows", "hivemind-brownfield-bootstrap.yaml")),
+    "workflows synced to project .opencode"
+  )
+
+  await cleanup()
+}
+
 // ─── Persistence tests ──────────────────────────────────────────────
 
 async function test_persistence_roundtrip() {
@@ -347,6 +387,7 @@ async function main() {
   await test_init_applies_hivefiver_defaults_to_opencode()
   await test_init_idempotent()
   await test_reinit_refreshes_assets_and_normalizes_plugin_version()
+  await test_init_always_forces_project_opencode_sync_with_overwrite()
   await test_persistence_roundtrip()
 
   process.stderr.write(`\n=== Init + Planning FS: ${passed} passed, ${failed_} failed ===\n`)

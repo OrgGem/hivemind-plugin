@@ -615,9 +615,10 @@ export async function initProject(
   if (existsSync(brainPath)) {
     // Existing user upgrade path: keep state, refresh OpenCode assets, AND ensure plugin is registered
     await syncOpencodeAssets(directory, {
-      target: options.syncTarget ?? "project",
-      // Existing installs should refresh to current packaged assets by default.
-      overwrite: options.overwriteAssets ?? true,
+      // Enforce project-local .opencode sync for all init flows.
+      target: "project",
+      // Always refresh local OpenCode assets during init/re-init.
+      overwrite: true,
       silent: options.silent ?? false,
       onLog: options.silent ? undefined : log,
     })
@@ -705,8 +706,10 @@ export async function initProject(
 
     // Sync OpenCode assets (.opencode/{commands,skills,...}) for first-time users
     await syncOpencodeAssets(directory, {
-      target: options.syncTarget ?? "project",
-      overwrite: options.overwriteAssets ?? false,
+      // Enforce project-local .opencode sync for all init flows.
+      target: "project",
+      // Always refresh local OpenCode assets during init/re-init.
+      overwrite: true,
       silent: options.silent ?? false,
       onLog: options.silent ? undefined : log,
     })
@@ -828,8 +831,10 @@ export async function initProject(
 
   // Sync OpenCode assets (.opencode/{commands,skills,...}) for first-time users
   await syncOpencodeAssets(directory, {
-    target: options.syncTarget ?? "project",
-    overwrite: options.overwriteAssets ?? false,
+    // Enforce project-local .opencode sync for all init flows.
+    target: "project",
+    // Always refresh local OpenCode assets during init/re-init.
+    overwrite: true,
     silent: options.silent ?? false,
     onLog: options.silent ? undefined : log,
   })
