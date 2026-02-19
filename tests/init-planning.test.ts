@@ -16,7 +16,7 @@ import {
   getPlanningPaths,
 } from "../src/lib/planning-fs.js"
 import { existsSync } from "fs"
-import { readFile, mkdtemp, rm, writeFile } from "fs/promises"
+import { mkdir, readFile, mkdtemp, rm, writeFile } from "fs/promises"
 import { tmpdir } from "os"
 import { getEffectivePaths } from "../src/lib/paths.js"
 import { join } from "path"
@@ -338,6 +338,27 @@ async function test_init_always_forces_project_opencode_sync_with_overwrite() {
   await cleanup()
 }
 
+async function test_reinit_removes_legacy_project_plugin_artifacts() {
+  process.stderr.write("\n--- init: removes legacy .opencode plugin artifacts ---\n")
+  const dir = await setup()
+
+  await initProject(dir, { silent: true })
+
+  const legacyPluginDir = join(dir, ".opencode", "plugins", "hivemind-context-governance@2.6.2")
+  const legacyUnpinnedDir = join(dir, ".opencode", "plugins", "hivemind-context-governance")
+  await mkdir(legacyPluginDir, { recursive: true })
+  await mkdir(legacyUnpinnedDir, { recursive: true })
+  await writeFile(join(legacyPluginDir, "index.js"), "module.exports = {}", "utf-8")
+  await writeFile(join(legacyUnpinnedDir, "index.js"), "module.exports = {}", "utf-8")
+
+  await initProject(dir, { silent: true })
+
+  assert(!existsSync(legacyPluginDir), "re-init removes versioned legacy plugin directory")
+  assert(!existsSync(legacyUnpinnedDir), "re-init removes unpinned legacy plugin directory")
+
+  await cleanup()
+}
+
 // ─── Persistence tests ──────────────────────────────────────────────
 
 async function test_persistence_roundtrip() {
@@ -382,6 +403,7 @@ async function main() {
   await test_init_idempotent()
   await test_reinit_refreshes_assets_and_normalizes_plugin_version()
   await test_init_always_forces_project_opencode_sync_with_overwrite()
+  await test_reinit_removes_legacy_project_plugin_artifacts()
   await test_persistence_roundtrip()
 
   process.stderr.write(`\n=== Init + Planning FS: ${passed} passed, ${failed_} failed ===\n`)

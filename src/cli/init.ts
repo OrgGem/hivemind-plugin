@@ -11,7 +11,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { copyFile, mkdir, rm, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, readdir, rm, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
@@ -302,6 +302,29 @@ function registerPluginInConfig(directory: string, silent: boolean): void {
       log(`  ✓ Plugin registered in opencode.json`)
       log(`    → OpenCode will auto-install on next launch`)
     }
+  }
+}
+
+async function cleanupLegacyProjectPluginArtifacts(directory: string, silent: boolean): Promise<void> {
+  const pluginsDir = join(directory, ".opencode", "plugins")
+  if (!existsSync(pluginsDir)) return
+
+  let removed = 0
+  try {
+    const entries = await readdir(pluginsDir, { withFileTypes: true })
+    for (const entry of entries) {
+      const isLegacyName = /^hivemind-context-governance(?:@.+)?$/.test(entry.name)
+      if (!isLegacyName) continue
+
+      await rm(join(pluginsDir, entry.name), { recursive: true, force: true })
+      removed++
+    }
+  } catch {
+    return
+  }
+
+  if (!silent && removed > 0) {
+    log(`  ✓ Removed ${removed} legacy plugin artifact(s) from .opencode/plugins`)
   }
 }
 
@@ -611,6 +634,8 @@ export async function initProject(
   // Guard: Check brain.json existence, not just directory.
   // The directory may exist from logger side-effects without full initialization.
   if (existsSync(brainPath)) {
+    await cleanupLegacyProjectPluginArtifacts(directory, options.silent ?? false)
+
     // Existing user upgrade path: keep state, refresh OpenCode assets, AND ensure plugin is registered
     await syncOpencodeAssets(directory, {
       // Enforce project-local .opencode sync for all init flows.
@@ -701,6 +726,8 @@ export async function initProject(
 
     // Auto-inject HiveMind section into AGENTS.md / CLAUDE.md
     injectAgentsDocs(directory, options.silent ?? false)
+
+    await cleanupLegacyProjectPluginArtifacts(directory, options.silent ?? false)
 
     // Sync OpenCode assets (.opencode/{commands,skills,...}) for first-time users
     await syncOpencodeAssets(directory, {
@@ -826,6 +853,8 @@ export async function initProject(
 
   // Auto-inject HiveMind section into AGENTS.md / CLAUDE.md
   injectAgentsDocs(directory, options.silent ?? false)
+
+  await cleanupLegacyProjectPluginArtifacts(directory, options.silent ?? false)
 
   // Sync OpenCode assets (.opencode/{commands,skills,...}) for first-time users
   await syncOpencodeAssets(directory, {
