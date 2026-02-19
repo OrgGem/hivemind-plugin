@@ -195,6 +195,21 @@ const DEFAULT_COMMANDMENTS_MARKDOWN = `# 10 Commandments
 10. Close every cycle with explicit summary and next steps.
 `
 
+function resolveOpencodeConfigPath(directory: string): string {
+  const candidates = [
+    join(directory, "opencode.json"),
+    join(directory, "opencode.jsonc"),
+    join(directory, ".opencode", "opencode.json"),
+    join(directory, ".opencode", "opencode.jsonc"),
+  ]
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate
+  }
+
+  return join(directory, "opencode.json")
+}
+
 async function seedTenCommandments(directory: string): Promise<void> {
   const paths = getEffectivePaths(directory)
   const commandmentsSource = join(__dirname, "..", "..", "docs", "10-commandments.md")
@@ -216,14 +231,8 @@ async function seedTenCommandments(directory: string): Promise<void> {
  * Ensures plugin registration uses the canonical unpinned package name.
  */
 function registerPluginInConfig(directory: string, silent: boolean): void {
-  // Check both opencode.json and opencode.jsonc
-  let configPath = join(directory, "opencode.json")
-  if (!existsSync(configPath)) {
-    const jsoncPath = join(directory, "opencode.jsonc")
-    if (existsSync(jsoncPath)) {
-      configPath = jsoncPath
-    }
-  }
+  // Support both modern root config and legacy .opencode/opencode.json installs.
+  let configPath = resolveOpencodeConfigPath(directory)
 
   let config: Record<string, unknown> = {}
 
@@ -334,7 +343,7 @@ async function cleanupLegacyProjectPluginArtifacts(directory: string, silent: bo
  * - MCP stack placeholders for guided setup
  */
 function ensureHiveFiverDefaultsInOpencode(directory: string, silent: boolean): void {
-  const configPath = join(directory, "opencode.json")
+  const configPath = resolveOpencodeConfigPath(directory)
   if (!existsSync(configPath)) return
 
   let config: Record<string, unknown> = {}
@@ -472,7 +481,7 @@ function updateOpencodeJsonWithProfile(
   silent: boolean
 ): void {
   const preset = PROFILE_PRESETS[profileKey]
-  const configPath = join(directory, "opencode.json")
+  const configPath = resolveOpencodeConfigPath(directory)
   let config: Record<string, unknown> = {}
 
   if (existsSync(configPath)) {

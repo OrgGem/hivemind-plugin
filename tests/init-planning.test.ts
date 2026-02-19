@@ -298,6 +298,40 @@ async function test_reinit_refreshes_assets_and_normalizes_plugin_version() {
   await cleanup()
 }
 
+async function test_reinit_normalizes_legacy_dot_opencode_config() {
+  process.stderr.write("\n--- init: normalizes legacy .opencode/opencode.json plugin entries ---\n")
+  const dir = await setup()
+
+  await mkdir(join(dir, ".opencode"), { recursive: true })
+  await writeFile(
+    join(dir, ".opencode", "opencode.json"),
+    JSON.stringify({
+      "$schema": "https://opencode.ai/config.json",
+      plugin: ["hivemind-context-governance@2.6.2"],
+    }, null, 2) + "\n",
+    "utf-8"
+  )
+
+  await initProject(dir, { silent: true })
+
+  const legacyRaw = await readFile(join(dir, ".opencode", "opencode.json"), "utf-8")
+  const legacyConfig = JSON.parse(legacyRaw)
+  const plugins = Array.isArray(legacyConfig.plugin) ? legacyConfig.plugin : []
+  assert(
+    plugins.includes("hivemind-context-governance"),
+    "legacy .opencode/opencode.json plugin entry is normalized"
+  )
+  assert(
+    !plugins.some(
+      (value: unknown) =>
+        typeof value === "string" && value.includes("hivemind-context-governance@")
+    ),
+    "legacy .opencode/opencode.json has no pinned plugin entries"
+  )
+
+  await cleanup()
+}
+
 async function test_init_always_forces_project_opencode_sync_with_overwrite() {
   process.stderr.write("\n--- init: forces .opencode project sync and overwrite ---\n")
   const dir = await setup()
@@ -402,6 +436,7 @@ async function main() {
   await test_init_applies_hivefiver_defaults_to_opencode()
   await test_init_idempotent()
   await test_reinit_refreshes_assets_and_normalizes_plugin_version()
+  await test_reinit_normalizes_legacy_dot_opencode_config()
   await test_init_always_forces_project_opencode_sync_with_overwrite()
   await test_reinit_removes_legacy_project_plugin_artifacts()
   await test_persistence_roundtrip()
