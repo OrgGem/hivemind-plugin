@@ -257,7 +257,11 @@ async function test_reinit_refreshes_assets_and_normalizes_plugin_version() {
   const configPath = join(dir, "opencode.json")
   const rawBefore = await readFile(configPath, "utf-8")
   const configBefore = JSON.parse(rawBefore)
-  configBefore.plugin = ["hivemind-context-governance@2.6.2"]
+  configBefore.plugin = [
+    "some-other-plugin",
+    ".opencode/plugins/hivemind-context-governance@2.6.2",
+    "tailwind-helper",
+  ]
   await writeFile(configPath, JSON.stringify(configBefore, null, 2) + "\n", "utf-8")
 
   await initProject(dir, { silent: true })
@@ -275,9 +279,20 @@ async function test_reinit_refreshes_assets_and_normalizes_plugin_version() {
   assert(
     !plugins.some(
       (value: unknown) =>
-        typeof value === "string" && value.startsWith("hivemind-context-governance@")
+        typeof value === "string" && value.includes("hivemind-context-governance@")
     ),
     "re-init removes version-pinned plugin entry"
+  )
+  assert(
+    !plugins.some(
+      (value: unknown) =>
+        typeof value === "string" && value.includes(".opencode/plugins/hivemind-context-governance")
+    ),
+    "re-init removes malformed path-based plugin entry"
+  )
+  assert(
+    plugins.join(",") === "some-other-plugin,hivemind-context-governance,tailwind-helper",
+    "re-init replaces plugin in place without appending duplicates"
   )
 
   await cleanup()

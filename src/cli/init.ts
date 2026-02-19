@@ -253,18 +253,36 @@ function registerPluginInConfig(directory: string, silent: boolean): void {
   const plugins = (config.plugin as unknown[]).filter(
     (value): value is string => typeof value === "string"
   )
-  const isHiveMindPlugin = (value: string) =>
-    value === PLUGIN_NAME || value.startsWith(PLUGIN_NAME + "@")
+  const hiveMindPluginPattern = new RegExp(`(^|[\\\\/])${PLUGIN_NAME}(?:@.+)?$`)
+  const isHiveMindPlugin = (value: string) => hiveMindPluginPattern.test(value)
 
   const hadAnyHiveMindEntry = plugins.some(isHiveMindPlugin)
   const hadVersionPinnedEntry = plugins.some(
     (value) => value.startsWith(PLUGIN_NAME + "@")
   )
 
-  const withoutHiveMindEntries = plugins.filter(
-    (value) => !isHiveMindPlugin(value)
-  )
-  const nextPlugins = [...withoutHiveMindEntries, PLUGIN_NAME]
+  const firstHiveMindIndex = plugins.findIndex(isHiveMindPlugin)
+  const nextPlugins: string[] = []
+  let hiveMindInserted = false
+  for (let index = 0; index < plugins.length; index++) {
+    const value = plugins[index]
+    if (!isHiveMindPlugin(value)) {
+      nextPlugins.push(value)
+      continue
+    }
+
+    if (!hiveMindInserted) {
+      if (index === firstHiveMindIndex) {
+        // Replace malformed/path/pinned legacy entry in-place.
+        nextPlugins.push(PLUGIN_NAME)
+        hiveMindInserted = true
+      }
+      continue
+    }
+  }
+  if (!hiveMindInserted) {
+    nextPlugins.push(PLUGIN_NAME)
+  }
 
   const changed =
     nextPlugins.length !== plugins.length ||
