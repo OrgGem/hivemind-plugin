@@ -35,7 +35,7 @@ import {
   normalizeAutomationLabel,
 } from "../schemas/config.js"
 import { createBrainState, generateSessionId } from "../schemas/brain-state.js"
-import { createStateManager, saveConfig } from "../lib/persistence.js"
+import { createStateManager, loadConfig, saveConfig } from "../lib/persistence.js"
 import { initializePlanningDirectory } from "../lib/planning-fs.js"
 import { getEffectivePaths } from "../lib/paths.js"
 import { migrateIfNeeded } from "../lib/migrate.js"
@@ -649,6 +649,51 @@ export async function initProject(
   // Guard: Check brain.json existence, not just directory.
   // The directory may exist from logger side-effects without full initialization.
   if (existsSync(brainPath)) {
+    const hasConfigOverrides = Boolean(
+      options.profile ||
+      options.language ||
+      options.governanceMode ||
+      options.automationLevel ||
+      options.expertLevel ||
+      options.outputStyle ||
+      typeof options.requireCodeReview === "boolean" ||
+      typeof options.enforceTdd === "boolean"
+    )
+
+    let nextConfig: ReturnType<typeof createConfig> | null = null
+    if (hasConfigOverrides) {
+      if (options.profile && isValidProfilePreset(options.profile)) {
+        nextConfig = applyProfilePreset(options.profile, options).config
+      } else {
+        const currentConfig = await loadConfig(directory)
+        const resolvedAutomation = options.automationLevel
+          ? normalizeAutomationInput(options.automationLevel)
+          : null
+
+        nextConfig = createConfig({
+          ...currentConfig,
+          governance_mode: options.governanceMode ?? currentConfig.governance_mode,
+          language: options.language ?? currentConfig.language,
+          automation_level: resolvedAutomation ?? currentConfig.automation_level,
+          agent_behavior: {
+            ...currentConfig.agent_behavior,
+            language: options.language ?? currentConfig.agent_behavior.language,
+            expert_level: options.expertLevel ?? currentConfig.agent_behavior.expert_level,
+            output_style: options.outputStyle ?? currentConfig.agent_behavior.output_style,
+            constraints: {
+              ...currentConfig.agent_behavior.constraints,
+              require_code_review:
+                options.requireCodeReview ?? currentConfig.agent_behavior.constraints.require_code_review,
+              enforce_tdd:
+                options.enforceTdd ?? currentConfig.agent_behavior.constraints.enforce_tdd,
+            },
+          },
+        })
+      }
+
+      await saveConfig(directory, nextConfig)
+    }
+
     await cleanupLegacyProjectPluginArtifacts(directory, options.silent ?? false)
 
     // Existing user upgrade path: keep state, refresh OpenCode assets, AND ensure plugin is registered
@@ -664,14 +709,40 @@ export async function initProject(
     // Ensure plugin is registered in opencode.json (this was missing!)
     registerPluginInConfig(directory, options.silent ?? false)
     ensureHiveFiverDefaultsInOpencode(directory, options.silent ?? false)
+    if (options.profile && isValidProfilePreset(options.profile)) {
+      updateOpencodeJsonWithProfile(directory, options.profile, options.silent ?? false)
+    }
 
     const existingStateManager = createStateManager(directory)
     const existingState = await existingStateManager.load()
+    if (existingState && nextConfig) {
+      const nextStatus = nextConfig.governance_mode === "strict" ? "LOCKED" : "OPEN"
+      await existingStateManager.save({
+        ...existingState,
+        session: {
+          ...existingState.session,
+          governance_mode: nextConfig.governance_mode,
+          governance_status: nextStatus,
+          last_activity: Date.now(),
+        },
+      })
+    }
     await seedHiveFiverOnboardingTasks(directory, existingState?.session.id ?? "unknown")
     logHiveFiverAuditResult(auditHiveFiverAssets(directory), options.silent ?? false)
 
     if (!options.silent) {
-      log("⚠ HiveMind already initialized in this project.")
+      if (nextConfig) {
+        log("✓ HiveMind re-initialized with updated configuration.")
+        log(`  Governance: ${nextConfig.governance_mode}`)
+        log(`  Language: ${nextConfig.language}`)
+        log(`  Automation: ${normalizeAutomationLabel(nextConfig.automation_level)}${isCoachAutomation(nextConfig.automation_level) ? " (max guidance)" : ""}`)
+        log(`  Expert Level: ${nextConfig.agent_behavior.expert_level}`)
+        log(`  Output Style: ${nextConfig.agent_behavior.output_style}`)
+        if (nextConfig.agent_behavior.constraints.require_code_review) log("  ✓ Code review required")
+        if (nextConfig.agent_behavior.constraints.enforce_tdd) log("  ✓ TDD enforced")
+      } else {
+        log("⚠ HiveMind already initialized in this project.")
+      }
       log(`  Directory: ${hivemindDir}`)
       log("  Use 'npx hivemind-context-governance status' to see current state.")
     }

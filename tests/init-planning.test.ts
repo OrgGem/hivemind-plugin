@@ -246,6 +246,46 @@ async function test_init_idempotent() {
   await cleanup()
 }
 
+async function test_reinit_applies_selected_options_to_existing_project() {
+  process.stderr.write("\n--- init: re-init applies selected options on existing project ---\n")
+  const dir = await setup()
+
+  await initProject(dir, { silent: true })
+
+  await initProject(dir, {
+    silent: true,
+    governanceMode: "strict",
+    language: "vi",
+    automationLevel: "full",
+    expertLevel: "beginner",
+    outputStyle: "explanatory",
+    requireCodeReview: true,
+    enforceTdd: true,
+  })
+
+  const config = await loadConfig(dir)
+  assert(config.governance_mode === "strict", "re-init updates governance mode")
+  assert(config.language === "vi", "re-init updates language")
+  assert(config.automation_level === "full", "re-init updates automation level")
+  assert(config.agent_behavior.expert_level === "beginner", "re-init updates expert level")
+  assert(config.agent_behavior.output_style === "explanatory", "re-init updates output style")
+  assert(
+    config.agent_behavior.constraints.require_code_review === true,
+    "re-init updates code-review constraint"
+  )
+  assert(
+    config.agent_behavior.constraints.enforce_tdd === true,
+    "re-init updates TDD constraint"
+  )
+
+  const stateManager = createStateManager(dir)
+  const state = await stateManager.load()
+  assert(state !== null && state.session.governance_mode === "strict", "re-init updates active state governance mode")
+  assert(state !== null && state.session.governance_status === "LOCKED", "strict re-init relocks active session")
+
+  await cleanup()
+}
+
 async function test_reinit_refreshes_assets_and_normalizes_plugin_version() {
   process.stderr.write("\n--- init: re-init refreshes assets for existing installs ---\n")
   const dir = await setup()
@@ -517,6 +557,7 @@ async function main() {
   await test_init_project_with_options()
   await test_init_applies_hivefiver_defaults_to_opencode()
   await test_init_idempotent()
+  await test_reinit_applies_selected_options_to_existing_project()
   await test_reinit_refreshes_assets_and_normalizes_plugin_version()
   await test_reinit_normalizes_legacy_dot_opencode_config()
   await test_reinit_normalizes_legacy_root_opencode_config()

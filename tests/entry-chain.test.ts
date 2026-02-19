@@ -405,10 +405,10 @@ async function test_jsoncConfigPreservation() {
   }
 }
 
-// ─── Test 12: re-init guard — existing .hivemind/ not overwritten ─────
+// ─── Test 12: re-init updates config for existing installs ─────────────
 
 async function test_reInitGuard() {
-  process.stderr.write("\n--- entry-chain: re-init guard ---\n")
+  process.stderr.write("\n--- entry-chain: re-init updates config ---\n")
   const dir = await makeTmpDir()
 
   try {
@@ -420,13 +420,13 @@ async function test_reInitGuard() {
     assert(config1.governance_mode === "strict", "first init: governance_mode is strict")
     assert(config1.language === "vi", "first init: language is vi")
 
-    // Second init should be a no-op (brain.json exists guard)
+    // Re-init should apply requested settings for existing projects
     await initProject(dir, { governanceMode: "permissive", language: "en", silent: true })
 
-    // Config should NOT have changed
+    // Config should be updated by re-init
     const config2 = JSON.parse(readFileSync(join(dir, ".hivemind", "config.json"), "utf-8"))
-    assert(config2.governance_mode === "strict", "re-init: governance_mode still strict (not overwritten)")
-    assert(config2.language === "vi", "re-init: language still vi (not overwritten)")
+    assert(config2.governance_mode === "permissive", "re-init: governance_mode updated")
+    assert(config2.language === "en", "re-init: language updated")
   } finally {
     await cleanTmpDir(dir)
   }
