@@ -394,9 +394,16 @@ async function main(): Promise<void> {
           const raw = await readFile(ocPath, "utf-8")
           const config = JSON.parse(raw)
           if (Array.isArray(config.plugin)) {
-            config.plugin = config.plugin.filter((p: string) => p !== "hivemind-context-governance")
-            await writeFile(ocPath, JSON.stringify(config, null, 2))
-            console.log("✅ Removed plugin from opencode.json")
+            const hiveMindPluginPattern = /(^|[\\/])hivemind-context-governance(?:@.+)?$/
+            const pluginCount = config.plugin.length
+            config.plugin = config.plugin.filter(
+              (value: unknown) =>
+                typeof value !== "string" || !hiveMindPluginPattern.test(value)
+            )
+            if (config.plugin.length !== pluginCount) {
+              await writeFile(ocPath, JSON.stringify(config, null, 2) + "\n")
+              console.log("✅ Removed plugin from opencode.json")
+            }
           }
         }
       } catch {

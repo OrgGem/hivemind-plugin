@@ -169,6 +169,8 @@ export interface InitOptions {
 const log = (msg: string) => console.log(msg)
 
 const PLUGIN_NAME = "hivemind-context-governance"
+const PINNED_PLUGIN_VERSION = "2.8.0"
+const PLUGIN_ENTRY = `${PLUGIN_NAME}@${PINNED_PLUGIN_VERSION}`
 const HIVEFIVER_PRIMARY_AGENT_TOOLS = {
   read: true,
   glob: true,
@@ -212,7 +214,7 @@ async function seedTenCommandments(directory: string): Promise<void> {
 /**
  * Auto-register the HiveMind plugin in opencode.json.
  * Creates the file if it doesn't exist.
- * Adds the plugin if not already registered.
+ * Pins plugin registration to the current public release.
  */
 function registerPluginInConfig(directory: string, silent: boolean): void {
   // Check both opencode.json and opencode.jsonc
@@ -257,10 +259,6 @@ function registerPluginInConfig(directory: string, silent: boolean): void {
   const isHiveMindPlugin = (value: string) => hiveMindPluginPattern.test(value)
 
   const hadAnyHiveMindEntry = plugins.some(isHiveMindPlugin)
-  const hadVersionPinnedEntry = plugins.some(
-    (value) => value.startsWith(PLUGIN_NAME + "@")
-  )
-
   const firstHiveMindIndex = plugins.findIndex(isHiveMindPlugin)
   const nextPlugins: string[] = []
   let hiveMindInserted = false
@@ -273,15 +271,15 @@ function registerPluginInConfig(directory: string, silent: boolean): void {
 
     if (!hiveMindInserted) {
       if (index === firstHiveMindIndex) {
-        // Replace malformed/path/pinned legacy entry in-place.
-        nextPlugins.push(PLUGIN_NAME)
+        // Replace malformed/path/legacy entry in-place.
+        nextPlugins.push(PLUGIN_ENTRY)
         hiveMindInserted = true
       }
       continue
     }
   }
   if (!hiveMindInserted) {
-    nextPlugins.push(PLUGIN_NAME)
+    nextPlugins.push(PLUGIN_ENTRY)
   }
 
   const changed =
@@ -299,13 +297,11 @@ function registerPluginInConfig(directory: string, silent: boolean): void {
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8")
 
   if (!silent) {
-    if (hadAnyHiveMindEntry && hadVersionPinnedEntry) {
-      log(`  ✓ Plugin registration normalized to ${PLUGIN_NAME}`)
-      log(`    → Removed version-pinned plugin entry to allow current package refresh`)
-    } else if (hadAnyHiveMindEntry) {
-      log(`  ✓ Plugin registration normalized in opencode.json`)
+    if (hadAnyHiveMindEntry) {
+      log(`  ✓ Plugin registration normalized to ${PLUGIN_ENTRY}`)
     } else {
       log(`  ✓ Plugin registered in opencode.json`)
+      log(`    → Pinned plugin: ${PLUGIN_ENTRY}`)
       log(`    → OpenCode will auto-install on next launch`)
     }
   }

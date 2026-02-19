@@ -273,15 +273,21 @@ async function test_reinit_refreshes_assets_and_normalizes_plugin_version() {
   const configAfter = JSON.parse(rawAfter)
   const plugins = Array.isArray(configAfter.plugin) ? configAfter.plugin : []
   assert(
-    plugins.includes("hivemind-context-governance"),
-    "re-init normalizes plugin entry to unpinned package name"
+    plugins.includes("hivemind-context-governance@2.8.0"),
+    "re-init pins plugin entry to package version 2.8.0"
   )
   assert(
     !plugins.some(
       (value: unknown) =>
-        typeof value === "string" && value.includes("hivemind-context-governance@")
+        typeof value === "string" &&
+        value.includes("hivemind-context-governance@") &&
+        value !== "hivemind-context-governance@2.8.0"
     ),
-    "re-init removes version-pinned plugin entry"
+    "re-init removes non-2.8.0 version-pinned plugin entries"
+  )
+  assert(
+    !plugins.includes("hivemind-context-governance"),
+    "re-init does not keep unpinned plugin entry"
   )
   assert(
     !plugins.some(
@@ -291,7 +297,7 @@ async function test_reinit_refreshes_assets_and_normalizes_plugin_version() {
     "re-init removes malformed path-based plugin entry"
   )
   assert(
-    plugins.join(",") === "some-other-plugin,hivemind-context-governance,tailwind-helper",
+    plugins.join(",") === "some-other-plugin,hivemind-context-governance@2.8.0,tailwind-helper",
     "re-init replaces plugin in place without appending duplicates"
   )
 
