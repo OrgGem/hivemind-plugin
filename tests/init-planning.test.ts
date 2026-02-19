@@ -16,7 +16,7 @@ import {
   getPlanningPaths,
 } from "../src/lib/planning-fs.js"
 import { existsSync } from "fs"
-import { readFile, mkdtemp, rm } from "fs/promises"
+import { readFile, mkdtemp, rm, writeFile } from "fs/promises"
 import { tmpdir } from "os"
 import { getEffectivePaths } from "../src/lib/paths.js"
 import { join } from "path"
@@ -244,6 +244,45 @@ async function test_init_idempotent() {
   await cleanup()
 }
 
+async function test_reinit_refreshes_assets_and_normalizes_plugin_version() {
+  process.stderr.write("\n--- init: re-init refreshes assets for existing installs ---\n")
+  const dir = await setup()
+
+  await initProject(dir, { silent: true })
+
+  const commandPath = join(dir, ".opencode", "commands", "hivemind-scan.md")
+  const originalCommand = await readFile(commandPath, "utf-8")
+  await writeFile(commandPath, "# stale old command\n", "utf-8")
+
+  const configPath = join(dir, "opencode.json")
+  const rawBefore = await readFile(configPath, "utf-8")
+  const configBefore = JSON.parse(rawBefore)
+  configBefore.plugin = ["hivemind-context-governance@2.6.2"]
+  await writeFile(configPath, JSON.stringify(configBefore, null, 2) + "\n", "utf-8")
+
+  await initProject(dir, { silent: true })
+
+  const refreshedCommand = await readFile(commandPath, "utf-8")
+  assert(refreshedCommand === originalCommand, "re-init overwrites stale packaged assets")
+
+  const rawAfter = await readFile(configPath, "utf-8")
+  const configAfter = JSON.parse(rawAfter)
+  const plugins = Array.isArray(configAfter.plugin) ? configAfter.plugin : []
+  assert(
+    plugins.includes("hivemind-context-governance"),
+    "re-init normalizes plugin entry to unpinned package name"
+  )
+  assert(
+    !plugins.some(
+      (value: unknown) =>
+        typeof value === "string" && value.startsWith("hivemind-context-governance@")
+    ),
+    "re-init removes version-pinned plugin entry"
+  )
+
+  await cleanup()
+}
+
 // ─── Persistence tests ──────────────────────────────────────────────
 
 async function test_persistence_roundtrip() {
@@ -286,6 +325,7 @@ async function main() {
   await test_init_project_with_options()
   await test_init_applies_hivefiver_defaults_to_opencode()
   await test_init_idempotent()
+  await test_reinit_refreshes_assets_and_normalizes_plugin_version()
   await test_persistence_roundtrip()
 
   process.stderr.write(`\n=== Init + Planning FS: ${passed} passed, ${failed_} failed ===\n`)

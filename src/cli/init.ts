@@ -250,28 +250,46 @@ function registerPluginInConfig(directory: string, silent: boolean): void {
     config.plugin = []
   }
 
-  const plugins = config.plugin as string[]
+  const plugins = (config.plugin as unknown[]).filter(
+    (value): value is string => typeof value === "string"
+  )
+  const isHiveMindPlugin = (value: string) =>
+    value === PLUGIN_NAME || value.startsWith(PLUGIN_NAME + "@")
 
-  // Check if already registered (exact match or versioned match)
-  const alreadyRegistered = plugins.some(
-    (p) => p === PLUGIN_NAME || p.startsWith(PLUGIN_NAME + "@")
+  const hadAnyHiveMindEntry = plugins.some(isHiveMindPlugin)
+  const hadVersionPinnedEntry = plugins.some(
+    (value) => value.startsWith(PLUGIN_NAME + "@")
   )
 
-  if (alreadyRegistered) {
+  const withoutHiveMindEntries = plugins.filter(
+    (value) => !isHiveMindPlugin(value)
+  )
+  const nextPlugins = [...withoutHiveMindEntries, PLUGIN_NAME]
+
+  const changed =
+    nextPlugins.length !== plugins.length ||
+    nextPlugins.some((value, index) => value !== plugins[index])
+
+  if (!changed) {
     if (!silent) {
       log(`  ✓ Plugin already registered in opencode.json`)
     }
     return
   }
 
-  plugins.push(PLUGIN_NAME)
-  config.plugin = plugins
-
+  config.plugin = nextPlugins
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8")
 
   if (!silent) {
-    log(`  ✓ Plugin registered in opencode.json`)
-    log(`    → OpenCode will auto-install on next launch`)
+    if (hadAnyHiveMindEntry && hadVersionPinnedEntry) {
+      log(`  ✓ Plugin registration normalized to ${PLUGIN_NAME}`)
+      log(`    → Removed version-pinned plugin entry to allow current package refresh`)
+    } else if (hadAnyHiveMindEntry) {
+      log(`  ✓ Plugin registration normalized in opencode.json`)
+    } else {
+      log(`  ✓ Plugin registered in opencode.json`)
+      log(`    → OpenCode will auto-install on next launch`)
+    }
   }
 }
 
@@ -584,7 +602,8 @@ export async function initProject(
     // Existing user upgrade path: keep state, refresh OpenCode assets, AND ensure plugin is registered
     await syncOpencodeAssets(directory, {
       target: options.syncTarget ?? "project",
-      overwrite: options.overwriteAssets ?? false,
+      // Existing installs should refresh to current packaged assets by default.
+      overwrite: options.overwriteAssets ?? true,
       silent: options.silent ?? false,
       onLog: options.silent ? undefined : log,
     })
