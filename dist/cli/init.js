@@ -9,7 +9,7 @@
  *   - config.json with governance preferences
  *   - Auto-registers plugin in opencode.json
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { copyFile, mkdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -120,20 +120,30 @@ export function injectAgentsDocs(directory, silent) {
 // eslint-disable-next-line no-console
 const log = (msg) => console.log(msg);
 const PLUGIN_NAME = "hivemind-context-governance";
+function resolveOpencodeConfigPath(directory) {
+    const candidates = [
+        join(directory, ".opencode", "opencode.json"),
+        join(directory, ".opencode", "opencode.jsonc"),
+        join(directory, "opencode.json"),
+        join(directory, "opencode.jsonc"),
+    ];
+    for (const candidate of candidates) {
+        if (existsSync(candidate))
+            return candidate;
+    }
+    return join(directory, ".opencode", "opencode.json");
+}
+function writeOpencodeConfig(configPath, config) {
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+}
 /**
  * Auto-register the HiveMind plugin in opencode.json.
  * Creates the file if it doesn't exist.
  * Adds the plugin if not already registered.
  */
 function registerPluginInConfig(directory, silent) {
-    // Check both opencode.json and opencode.jsonc
-    let configPath = join(directory, "opencode.json");
-    if (!existsSync(configPath)) {
-        const jsoncPath = join(directory, "opencode.jsonc");
-        if (existsSync(jsoncPath)) {
-            configPath = jsoncPath;
-        }
-    }
+    let configPath = resolveOpencodeConfigPath(directory);
     let config = {};
     if (existsSync(configPath)) {
         try {
@@ -150,26 +160,43 @@ function registerPluginInConfig(directory, silent) {
                 log(`  ⚠ Could not parse ${configPath}: ${err instanceof Error ? err.message : err}`);
                 log(`  ⚠ Creating new opencode.json (existing file preserved)`);
             }
-            configPath = join(directory, "opencode.json");
+            configPath = join(directory, ".opencode", "opencode.json");
             config = {};
         }
     }
-    // Ensure plugin array exists
     if (!Array.isArray(config.plugin)) {
         config.plugin = [];
     }
-    const plugins = config.plugin;
-    // Check if already registered (exact match or versioned match)
-    const alreadyRegistered = plugins.some((p) => p === PLUGIN_NAME || p.startsWith(PLUGIN_NAME + "@"));
-    if (alreadyRegistered) {
+    const plugins = config.plugin.filter((value) => typeof value === "string");
+    const hiveMindPluginPattern = new RegExp(`(^|[\\\\/])${PLUGIN_NAME}(?:@.+)?$`);
+    const isHiveMindPlugin = (value) => hiveMindPluginPattern.test(value);
+    const firstHiveMindIndex = plugins.findIndex(isHiveMindPlugin);
+    const nextPlugins = [];
+    let hiveMindInserted = false;
+    for (let index = 0; index < plugins.length; index++) {
+        const value = plugins[index];
+        if (!isHiveMindPlugin(value)) {
+            nextPlugins.push(value);
+            continue;
+        }
+        if (!hiveMindInserted && index === firstHiveMindIndex) {
+            nextPlugins.push(PLUGIN_NAME);
+            hiveMindInserted = true;
+        }
+    }
+    if (!hiveMindInserted) {
+        nextPlugins.push(PLUGIN_NAME);
+    }
+    const changed = nextPlugins.length !== plugins.length ||
+        nextPlugins.some((value, index) => value !== plugins[index]);
+    if (!changed) {
         if (!silent) {
             log(`  ✓ Plugin already registered in opencode.json`);
         }
         return;
     }
-    plugins.push(PLUGIN_NAME);
-    config.plugin = plugins;
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    config.plugin = nextPlugins;
+    writeOpencodeConfig(configPath, config);
     if (!silent) {
         log(`  ✓ Plugin registered in opencode.json`);
         log(`    → OpenCode will auto-install on next launch`);
@@ -216,7 +243,7 @@ function applyProfilePreset(profileKey, options) {
  */
 function updateOpencodeJsonWithProfile(directory, profileKey, silent) {
     const preset = PROFILE_PRESETS[profileKey];
-    const configPath = join(directory, "opencode.json");
+    const configPath = resolveOpencodeConfigPath(directory);
     let config = {};
     if (existsSync(configPath)) {
         try {
@@ -236,7 +263,7 @@ function updateOpencodeJsonWithProfile(directory, profileKey, silent) {
         ...config.permission,
         ...preset.permissions,
     };
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    writeOpencodeConfig(configPath, config);
     if (!silent) {
         log(`  ✓ Applied ${preset.label} profile permissions to opencode.json`);
     }
@@ -352,10 +379,11 @@ export async function initProject(directory, options = {}) {
     // Guard: Check brain.json existence, not just directory.
     // The directory may exist from logger side-effects without full initialization.
     if (existsSync(brainPath)) {
+        await initializePlanningDirectory(directory);
         // Existing user upgrade path: keep state, refresh OpenCode assets, AND ensure plugin is registered
         await syncOpencodeAssets(directory, {
-            target: options.syncTarget ?? "project",
-            overwrite: options.overwriteAssets ?? false,
+            target: "project",
+            overwrite: true,
             silent: options.silent ?? false,
             onLog: options.silent ? undefined : log,
         });
@@ -429,8 +457,8 @@ export async function initProject(directory, options = {}) {
         injectAgentsDocs(directory, options.silent ?? false);
         // Sync OpenCode assets (.opencode/{commands,skills,...}) for first-time users
         await syncOpencodeAssets(directory, {
-            target: options.syncTarget ?? "project",
-            overwrite: options.overwriteAssets ?? false,
+            target: "project",
+            overwrite: true,
             silent: options.silent ?? false,
             onLog: options.silent ? undefined : log,
         });
@@ -537,8 +565,8 @@ export async function initProject(directory, options = {}) {
     injectAgentsDocs(directory, options.silent ?? false);
     // Sync OpenCode assets (.opencode/{commands,skills,...}) for first-time users
     await syncOpencodeAssets(directory, {
-        target: options.syncTarget ?? "project",
-        overwrite: options.overwriteAssets ?? false,
+        target: "project",
+        overwrite: true,
         silent: options.silent ?? false,
         onLog: options.silent ? undefined : log,
     });
