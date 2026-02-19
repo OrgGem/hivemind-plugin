@@ -85,7 +85,7 @@ npx hivemind-context-governance init
 **Điều gì sẽ xảy ra (đảm bảo):**
 1. Tự động tải từ npm (không cần cài thủ công)
 2. Tạo thư mục `.hivemind/` với brain.json, config.json
-3. Đăng ký plugin trong `opencode.json` (để OpenCode tự động load)
+3. Đăng ký plugin trong `.opencode/opencode.json` (để OpenCode tự động load)
 4. Đồng bộ commands/skills vào `.opencode/`
 5. Tạo các file session template
 6. Mở session ở chế độ `OPEN` (assisted) hoặc `LOCKED` (strict)
@@ -126,7 +126,7 @@ npx hivemind-context-governance init --mode strict --lang vi --automation full
 
 Lệnh này làm **đúng như** wizard tương tác:
 - Tạo cấu trúc `.hivemind/`
-- Đăng ký plugin trong `opencode.json`
+- Đăng ký plugin trong `.opencode/opencode.json`
 - Đồng bộ OpenCode assets
 - Khởi tạo brain state với cài đặt đã chọn
 
@@ -140,7 +140,7 @@ Xong. Plugin tự động hoạt động. AI agent sẽ nhận governance contex
 npx hivemind-context-governance status
 ```
 
-Hoặc kiểm tra thủ công `opencode.json` có chứa:
+Hoặc kiểm tra thủ công `.opencode/opencode.json` có chứa:
 ```json
 {
   "plugin": ["hivemind-context-governance"]
@@ -259,7 +259,7 @@ npx hivemind-context-governance init
 **What happens (guaranteed):**
 1. Downloads from npm automatically (no manual install needed)
 2. Creates `.hivemind/` directory with brain.json, config.json
-3. Registers plugin in `opencode.json` (so OpenCode auto-loads it)
+3. Registers plugin in `.opencode/opencode.json` (so OpenCode auto-loads it)
 4. Syncs commands/skills into `.opencode/`
 5. Creates session template files
 6. Opens a session in `OPEN` mode (assisted) or `LOCKED` mode (strict)
@@ -300,7 +300,7 @@ npx hivemind-context-governance init --mode strict --lang vi --automation full
 
 This does **exactly the same** as the interactive wizard:
 - Creates `.hivemind/` structure
-- Registers plugin in `opencode.json` 
+- Registers plugin in `.opencode/opencode.json` 
 - Syncs OpenCode assets
 - Initializes brain state with your chosen settings
 
@@ -312,7 +312,7 @@ After running `init`, verify everything is set up:
 npx hivemind-context-governance status
 ```
 
-Or manually check `opencode.json` contains:
+Or manually check `.opencode/opencode.json` contains:
 ```json
 {
   "plugin": ["hivemind-context-governance"]
@@ -326,12 +326,12 @@ That's it. The plugin auto-activates. The AI agent gets governance context injec
 **Important:** If you run `init` again on an existing project, it will:
 - Keep your existing `.hivemind/` state
 - Refresh OpenCode assets
-- Ensure plugin is still registered in `opencode.json`
+- Ensure plugin is still registered in `.opencode/opencode.json`
 
 **How it works:**
-- `init` automatically registers `hivemind-context-governance` in `opencode.json`'s `plugin` array
+- `init` automatically registers `hivemind-context-governance` in `.opencode/opencode.json`'s `plugin` array
 - OpenCode reads this on startup and auto-loads the plugin
-- If you manually edit `opencode.json`, make sure `plugin` is an array containing `"hivemind-context-governance"`
+- If you manually edit `.opencode/opencode.json`, make sure `plugin` is an array containing `"hivemind-context-governance"`
 
 ---
 
@@ -679,7 +679,7 @@ npx hivemind-context-governance init --force
 
 ### "Plugin not loading" or "Setup guidance keeps appearing"
 
-**Cause:** The plugin was never registered in `opencode.json`.
+**Cause:** The plugin was never registered in `.opencode/opencode.json`.
 
 **Fix:** Run the init command **once**:
 ```bash
@@ -688,7 +688,7 @@ npx hivemind-context-governance init --mode assisted
 
 This does **all** of the following:
 - Creates `.hivemind/` directory structure
-- Registers plugin in `opencode.json` (so OpenCode auto-loads it)
+- Registers plugin in `.opencode/opencode.json` (so OpenCode auto-loads it)
 - Syncs commands/skills into `.opencode/`
 - Initializes brain state
 
