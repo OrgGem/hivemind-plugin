@@ -37,9 +37,11 @@ WORKDIR /app
 # Non-root user for security
 RUN addgroup -S hivemind && adduser -S hivemind -G hivemind
 
-# Copy package files and install production deps only
+# Copy package files and install production deps + required peer dependency
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev --install-strategy=nested && \
+    npm install --no-save @opencode-ai/plugin && \
+    npm cache clean --force
 
 # Copy built output and assets from builder
 COPY --from=builder /build/dist/ dist/

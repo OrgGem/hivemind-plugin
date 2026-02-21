@@ -18,7 +18,7 @@ import { createStateManager, loadConfig, saveConfig } from "../lib/persistence.j
 import { listArchives } from "../lib/planning-fs.js"
 import { getEffectivePaths, hivemindExists } from "../lib/paths.js"
 import { migrateToGraph, isGraphMigrationNeeded } from "../lib/graph-migrate.js"
-import { normalizeAutomationLabel, createConfig } from "../schemas/config.js"
+import { normalizeAutomationLabel, createConfig, isValidGovernanceMode, isValidLanguage, isValidAutomationLevel, isValidExpertLevel, isValidOutputStyle } from "../schemas/config.js"
 import { initProject } from "../cli/init.js"
 import { syncOpencodeAssets } from "../cli/sync-assets.js"
 import { runScanCommand } from "../cli/scan.js"
@@ -230,13 +230,30 @@ async function handleGetSettings(dir: string, res: ServerResponse): Promise<void
 async function handlePutSettings(dir: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const body = await parseJsonBody(req)
   const cur = await loadConfig(dir)
-  if (typeof body.governance_mode === "string") (cur as unknown as Record<string, unknown>).governance_mode = body.governance_mode
-  if (typeof body.language === "string") (cur as unknown as Record<string, unknown>).language = body.language
-  if (typeof body.automation_level === "string") (cur as unknown as Record<string, unknown>).automation_level = body.automation_level
+
+  // Validate and apply enum fields
+  if (typeof body.governance_mode === "string") {
+    if (!isValidGovernanceMode(body.governance_mode)) { sendError(res, 400, "Invalid governance_mode."); return }
+    (cur as unknown as Record<string, unknown>).governance_mode = body.governance_mode
+  }
+  if (typeof body.language === "string") {
+    if (!isValidLanguage(body.language)) { sendError(res, 400, "Invalid language."); return }
+    (cur as unknown as Record<string, unknown>).language = body.language
+  }
+  if (typeof body.automation_level === "string") {
+    if (!isValidAutomationLevel(body.automation_level)) { sendError(res, 400, "Invalid automation_level."); return }
+    (cur as unknown as Record<string, unknown>).automation_level = body.automation_level
+  }
   if (body.agent_behavior && typeof body.agent_behavior === "object") {
     const ab = body.agent_behavior as Record<string, unknown>
-    if (typeof ab.expert_level === "string") cur.agent_behavior.expert_level = ab.expert_level as typeof cur.agent_behavior.expert_level
-    if (typeof ab.output_style === "string") cur.agent_behavior.output_style = ab.output_style as typeof cur.agent_behavior.output_style
+    if (typeof ab.expert_level === "string") {
+      if (!isValidExpertLevel(ab.expert_level)) { sendError(res, 400, "Invalid expert_level."); return }
+      cur.agent_behavior.expert_level = ab.expert_level as typeof cur.agent_behavior.expert_level
+    }
+    if (typeof ab.output_style === "string") {
+      if (!isValidOutputStyle(ab.output_style)) { sendError(res, 400, "Invalid output_style."); return }
+      cur.agent_behavior.output_style = ab.output_style as typeof cur.agent_behavior.output_style
+    }
     if (ab.constraints && typeof ab.constraints === "object") {
       const c = ab.constraints as Record<string, unknown>
       if (typeof c.require_code_review === "boolean") cur.agent_behavior.constraints.require_code_review = c.require_code_review

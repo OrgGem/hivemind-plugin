@@ -7,7 +7,7 @@
 
 import { test, describe, before, after } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs"
+import { mkdtempSync, existsSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import type { Server } from "node:http"
@@ -142,6 +142,15 @@ describe("WebUI API — CLI Command Endpoints", () => {
     // Verify changes persisted
     const { body: settings } = await api("/api/settings")
     assert.equal(settings.governance_mode, "strict")
+  })
+
+  test("PUT /api/settings rejects invalid governance_mode", async () => {
+    const { status, body } = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ governance_mode: "invalid_mode" }),
+    })
+    assert.equal(status, 400)
+    assert.ok(body.error)
   })
 
   test("POST /api/scan runs scan", async () => {

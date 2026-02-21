@@ -403,14 +403,14 @@ createApp({
     const wfChatBox = ref(null)
 
     const navItems = [
-      { id: 'dashboard', icon: '\\u{1F4CA}', label: 'Dashboard' },
-      { id: 'init',      icon: '\\u{1F680}', label: 'Init' },
-      { id: 'settings',  icon: '\\u2699\\uFE0F', label: 'Settings' },
-      { id: 'scan',      icon: '\\u{1F50D}', label: 'Scan' },
-      { id: 'skills',    icon: '\\u{1F3AF}', label: 'Skills' },
-      { id: 'workflows', icon: '\\u{1F517}', label: 'Workflows' },
-      { id: 'operations',icon: '\\u{1F6E0}\\uFE0F', label: 'Operations' },
-      { id: 'envconfig', icon: '\\u{1F4CB}', label: 'Env Config' },
+      { id: 'dashboard', icon: '📊', label: 'Dashboard' },
+      { id: 'init',      icon: '🚀', label: 'Init' },
+      { id: 'settings',  icon: '⚙️', label: 'Settings' },
+      { id: 'scan',      icon: '🔍', label: 'Scan' },
+      { id: 'skills',    icon: '🎯', label: 'Skills' },
+      { id: 'workflows', icon: '🔗', label: 'Workflows' },
+      { id: 'operations',icon: '🛠️', label: 'Operations' },
+      { id: 'envconfig', icon: '📋', label: 'Env Config' },
     ]
 
     function showToast(msg, type='info') {
@@ -515,7 +515,7 @@ createApp({
       skillChat.active=true; skillChat.messages=[]; skillChat.step='name'
       skillChat.data = { name:'', description:'', version:'1.0.0', triggers:[], content:'' }
       skillChat.triggerCount = 0
-      sysMsg("Welcome! Let's create a new skill together. \\u{1F680}<br><br>What would you like to <strong>name</strong> your skill?<br><small class='text-gray-500'>Use kebab-case, e.g. my-debug-skill</small>")
+      sysMsg("Welcome! Let's create a new skill together. 🚀<br><br>What would you like to <strong>name</strong> your skill?<br><small class='text-gray-500'>Use kebab-case, e.g. my-debug-skill</small>")
       skillChat.waitingInput=true; skillChat.inputPlaceholder='Skill name (e.g. my-debug-skill)'
     }
 
@@ -529,17 +529,17 @@ createApp({
       switch(skillChat.step) {
         case 'name':
           if(!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(val)){
-            sysMsg("\\u274C Name must start with a letter and contain only letters, numbers, hyphens, and underscores. Try again:")
+            sysMsg("❌ Name must start with a letter and contain only letters, numbers, hyphens, and underscores. Try again:")
             return
           }
           skillChat.data.name = val
           skillChat.step = 'description'
-          sysMsg("Great name! \\u2705<br><br>Now, <strong>describe</strong> what this skill does:")
+          sysMsg("Great name! ✅<br><br>Now, <strong>describe</strong> what this skill does:")
           skillChat.inputPlaceholder = 'Skill description'
           break
 
         case 'description':
-          if(val.length < 5){ sysMsg("\\u274C Description too short. Please provide a meaningful description:"); return }
+          if(val.length < 5){ sysMsg("❌ Description too short. Please provide a meaningful description:"); return }
           skillChat.data.description = val
           skillChat.step = 'version'
           sysMsg("Good. What <strong>version</strong> is this?", null)
@@ -554,7 +554,7 @@ createApp({
           if(val === 'Custom'){ skillChat.waitingInput=true; skillChat.inputPlaceholder='Enter version (e.g. 2.0.0)'; return }
           skillChat.data.version = val || '1.0.0'
           skillChat.step = 'trigger_ask'
-          sysMsg("Version set to <strong>" + skillChat.data.version + "</strong>.<br><br>Now let's define <strong>triggers</strong> \\u2014 when should this skill activate?<br><small>Enter a trigger description:</small>")
+          sysMsg("Version set to <strong>" + skillChat.data.version + "</strong>.<br><br>Now let's define <strong>triggers</strong> — when should this skill activate?<br><small>Enter a trigger description:</small>")
           skillChat.waitingInput = true; skillChat.inputPlaceholder = 'e.g. When agent starts a session'
           break
 
@@ -562,7 +562,7 @@ createApp({
           skillChat.data.triggers.push(val)
           skillChat.triggerCount++
           skillChat.step = 'trigger_more'
-          sysMsg("Trigger #" + skillChat.triggerCount + " added. \\u2705 Add another?", ['Add another trigger', 'Done with triggers'])
+          sysMsg("Trigger #" + skillChat.triggerCount + " added. ✅ Add another?", ['Add another trigger', 'Done with triggers'])
           skillChat.waitingInput = false
           break
 
@@ -573,7 +573,7 @@ createApp({
             sysMsg("Enter the next trigger:")
           } else {
             skillChat.step = 'content'
-            sysMsg("Triggers defined (" + skillChat.data.triggers.length + " total). \\u{1F44D}<br><br>Now write the <strong>skill content</strong> (Markdown instructions for the AI agent):<br><small>This is the main body of your SKILL.md</small>")
+            sysMsg("Triggers defined (" + skillChat.data.triggers.length + " total). 👍<br><br>Now write the <strong>skill content</strong> (Markdown instructions for the AI agent):<br><small>This is the main body of your SKILL.md</small>")
             skillChat.waitingInput = true; skillChat.inputPlaceholder = 'Skill content (Markdown)'
           }
           break
@@ -582,14 +582,14 @@ createApp({
           skillChat.data.content = val
           skillChat.step = 'confirm'
           skillChat.waitingInput = false
-          const preview = "\\u{1F4C4} <strong>Skill Preview:</strong><br>" +
+          const preview = "📄 <strong>Skill Preview:</strong><br>" +
             "<code>" + skillChat.data.name + "</code> v" + skillChat.data.version + "<br>" +
             "Description: " + skillChat.data.description + "<br>" +
             "Triggers: " + skillChat.data.triggers.length + "<br>" +
             "Content: " + val.length + " characters"
           sysMsg(preview)
           setTimeout(()=>{
-            skillChat.messages.push({ from:'system', text:'Create this skill?', options:['\\u2705 Create', '\\u274C Cancel'] })
+            skillChat.messages.push({ from:'system', text:'Create this skill?', options:['✅ Create', '❌ Cancel'] })
             scrollSkillChat()
           }, 600)
           break
@@ -599,11 +599,11 @@ createApp({
             loading.value = true
             try {
               const d = await api('/api/skills',{method:'POST',body:JSON.stringify(skillChat.data)})
-              if(d.success){ sysMsg("\\u{1F389} Skill <strong>" + skillChat.data.name + "</strong> created successfully!<br>You can now download it from the list below.")
+              if(d.success){ sysMsg("🎉 Skill <strong>" + skillChat.data.name + "</strong> created successfully!<br>You can now download it from the list below.")
                 loadSkills()
                 setTimeout(()=>{ skillChat.waitingInput=false; skillChat.step='done' }, 500)
-              } else { sysMsg("\\u274C Error: " + (d.error||'Unknown error')); skillChat.step='done' }
-            } catch(e){ sysMsg("\\u274C Failed: " + e.message); skillChat.step='done' }
+              } else { sysMsg("❌ Error: " + (d.error||'Unknown error')); skillChat.step='done' }
+            } catch(e){ sysMsg("❌ Failed: " + e.message); skillChat.step='done' }
             finally { loading.value = false }
           } else {
             sysMsg("Cancelled. No skill was created.")
@@ -645,7 +645,7 @@ createApp({
       wfChat.active=true; wfChat.messages=[]; wfChat.step='name'
       wfChat.data = { name:'', description:'', version:'1', steps:[] }
       wfChat.stepCount = 0
-      wfSys("Let's build a workflow! \\u{1F517}<br><br>What would you like to <strong>name</strong> it?<br><small class='text-gray-500'>Use kebab-case, e.g. my-deploy-workflow</small>")
+      wfSys("Let's build a workflow! 🔗<br><br>What would you like to <strong>name</strong> it?<br><small class='text-gray-500'>Use kebab-case, e.g. my-deploy-workflow</small>")
       wfChat.waitingInput=true; wfChat.inputPlaceholder='Workflow name'
     }
 
@@ -666,10 +666,10 @@ createApp({
       switch(wfChat.step) {
         case 'name':
           if(!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(val)){
-            wfSys("\\u274C Invalid name. Use letters, numbers, hyphens. Try again:"); return
+            wfSys("❌ Invalid name. Use letters, numbers, hyphens. Try again:"); return
           }
           wfChat.data.name = val; wfChat.step = 'description'
-          wfSys("Name set to <strong>" + val + "</strong>. \\u2705<br><br><strong>Describe</strong> what this workflow does:")
+          wfSys("Name set to <strong>" + val + "</strong>. ✅<br><br><strong>Describe</strong> what this workflow does:")
           wfChat.inputPlaceholder = 'Workflow description'
           break
 
@@ -684,14 +684,14 @@ createApp({
           wfChat.data.version = val || '1'
           wfChat.step = 'step_name'
           wfChat.stepCount++
-          wfSys("Version: <strong>" + wfChat.data.version + "</strong>. Now let's add steps!<br><br>\\u{1F4CD} <strong>Step " + wfChat.stepCount + "</strong> \\u2014 what should it be called?")
+          wfSys("Version: <strong>" + wfChat.data.version + "</strong>. Now let's add steps!<br><br>📍 <strong>Step " + wfChat.stepCount + "</strong> — what should it be called?")
           wfChat.waitingInput = true; wfChat.inputPlaceholder = 'Step name (e.g. analyze)'
           break
 
         case 'step_name':
           wfChat.currentStep = { name: val, tool: '', args: {} }
           wfChat.step = 'step_tool'
-          wfSys("Step <strong>" + val + "</strong> \\u2014 which <strong>tool</strong> should it use?", KNOWN_TOOLS)
+          wfSys("Step <strong>" + val + "</strong> — which <strong>tool</strong> should it use?", KNOWN_TOOLS)
           wfChat.waitingInput = false
           break
 
@@ -712,7 +712,7 @@ createApp({
             // Finalize step
             wfChat.data.steps.push({ ...wfChat.currentStep })
             wfChat.step = 'step_more'
-            wfSys("Step #" + wfChat.stepCount + " added \\u2705<br><code>" + wfChat.currentStep.name + "</code> \\u2192 <code>" + wfChat.currentStep.tool + "</code><br><br>Add another step?", ['Add another step', 'Done adding steps'])
+            wfSys("Step #" + wfChat.stepCount + " added ✅<br><code>" + wfChat.currentStep.name + "</code> → <code>" + wfChat.currentStep.tool + "</code><br><br>Add another step?", ['Add another step', 'Done adding steps'])
             wfChat.waitingInput = false
           }
           break
@@ -738,7 +738,7 @@ createApp({
           } else {
             wfChat.data.steps.push({ ...wfChat.currentStep, args: { ...wfChat.currentStep.args } })
             wfChat.step = 'step_more'
-            wfSys("Step #" + wfChat.stepCount + " complete \\u2705<br><code>" + wfChat.currentStep.name + "</code> \\u2192 <code>" + wfChat.currentStep.tool + "</code> with " + Object.keys(wfChat.currentStep.args).length + " args<br><br>Add another step?", ['Add another step', 'Done adding steps'])
+            wfSys("Step #" + wfChat.stepCount + " complete ✅<br><code>" + wfChat.currentStep.name + "</code> → <code>" + wfChat.currentStep.tool + "</code> with " + Object.keys(wfChat.currentStep.args).length + " args<br><br>Add another step?", ['Add another step', 'Done adding steps'])
             wfChat.waitingInput = false
           }
           break
@@ -746,14 +746,14 @@ createApp({
         case 'step_more':
           if(val.startsWith('Add')){
             wfChat.stepCount++; wfChat.step = 'step_name'
-            wfSys("\\u{1F4CD} <strong>Step " + wfChat.stepCount + "</strong> \\u2014 name?")
+            wfSys("📍 <strong>Step " + wfChat.stepCount + "</strong> — name?")
             wfChat.waitingInput = true; wfChat.inputPlaceholder = 'Step name'
           } else {
             wfChat.step = 'confirm'; wfChat.waitingInput = false
-            const stepsPreview = wfChat.data.steps.map((s,i)=> (i+1) + ". <code>" + s.name + "</code> \\u2192 " + s.tool).join('<br>')
-            wfSys("\\u{1F4C4} <strong>Workflow Preview:</strong><br><code>" + wfChat.data.name + "</code> v" + wfChat.data.version + "<br>" + wfChat.data.description + "<br><br><strong>Steps:</strong><br>" + stepsPreview)
+            const stepsPreview = wfChat.data.steps.map((s,i)=> (i+1) + ". <code>" + s.name + "</code> → " + s.tool).join('<br>')
+            wfSys("📄 <strong>Workflow Preview:</strong><br><code>" + wfChat.data.name + "</code> v" + wfChat.data.version + "<br>" + wfChat.data.description + "<br><br><strong>Steps:</strong><br>" + stepsPreview)
             setTimeout(()=>{
-              wfChat.messages.push({ from:'system', text:'Create this workflow?', options:['\\u2705 Create', '\\u274C Cancel'] })
+              wfChat.messages.push({ from:'system', text:'Create this workflow?', options:['✅ Create', '❌ Cancel'] })
               scrollWfChat()
             }, 600)
           }
@@ -764,11 +764,11 @@ createApp({
             loading.value = true
             try {
               const d = await api('/api/workflows',{method:'POST',body:JSON.stringify(wfChat.data)})
-              if(d.success){ wfSys("\\u{1F389} Workflow <strong>" + wfChat.data.name + "</strong> created!<br>Download it from the list below.")
+              if(d.success){ wfSys("🎉 Workflow <strong>" + wfChat.data.name + "</strong> created!<br>Download it from the list below.")
                 loadWorkflows()
                 setTimeout(()=>{ wfChat.waitingInput=false; wfChat.step='done' }, 500)
-              } else { wfSys("\\u274C Error: " + (d.error||'Unknown')); wfChat.step='done' }
-            } catch(e){ wfSys("\\u274C Failed: " + e.message); wfChat.step='done' }
+              } else { wfSys("❌ Error: " + (d.error||'Unknown')); wfChat.step='done' }
+            } catch(e){ wfSys("❌ Failed: " + e.message); wfChat.step='done' }
             finally { loading.value = false }
           } else { wfSys("Cancelled."); wfChat.step = 'done' }
           break
