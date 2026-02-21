@@ -25,7 +25,7 @@ import { listArchives } from "./lib/planning-fs.js"
 import { getEffectivePaths } from "./lib/paths.js"
 import { migrateToGraph, isGraphMigrationNeeded } from "./lib/graph-migrate.js"
 
-const COMMANDS = ["init", "migrate", "scan", "sync-assets", "status", "compact", "dashboard", "settings", "purge", "help"] as const
+const COMMANDS = ["init", "migrate", "scan", "sync-assets", "status", "compact", "dashboard", "settings", "purge", "webui", "help"] as const
 type Command = (typeof COMMANDS)[number]
 
 function printHelp(): void {
@@ -45,6 +45,7 @@ Commands:
   settings      Show current configuration
   compact       Archive current session and reset (OpenCode only)
   dashboard     Launch live TUI dashboard
+  webui         Launch web UI server (Vue + Tailwind)
   purge         Remove .hivemind/ entirely and unregister plugin
   help          Show this help message
 
@@ -64,6 +65,7 @@ Options:
   --action <status|analyze|recommend|orchestrate>  Scan action (default: analyze, for scan command)
   --json                   Return machine-readable JSON (for scan command)
   --include-drift          Include drift report (status action)
+  --port <number>          WebUI server port (default: 3000)
 
 Examples:
   npx hivemind-context-governance              # Interactive wizard
@@ -378,6 +380,18 @@ async function main(): Promise<void> {
     case "help":
       printHelp()
       break
+
+    case "webui": {
+      const { startWebUIServer } = await import("./webui/api-server.js")
+      const port = flags["port"] ? parseInt(flags["port"], 10) : undefined
+      startWebUIServer({
+        port,
+        projectRoot: directory,
+        // eslint-disable-next-line no-console
+        onLog: (msg) => console.log(msg),
+      })
+      break
+    }
 
     case "purge": {
       const hivemindDir = getEffectivePaths(directory).root

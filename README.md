@@ -504,6 +504,7 @@ npx hivemind-context-governance sync-assets # Sync packaged OpenCode assets to .
 npx hivemind-context-governance status      # Show session state
 npx hivemind-context-governance settings    # Show configuration
 npx hivemind-context-governance dashboard   # Launch live TUI dashboard
+npx hivemind-context-governance webui      # Launch web UI server
 npx hivemind-context-governance purge       # Remove .hivemind/ entirely
 npx hivemind-context-governance help        # Show help
 ```
@@ -526,6 +527,69 @@ npx hivemind-context-governance help        # Show help
 | `--action` | `status` · `analyze` · `recommend` · `orchestrate` *(for scan)* | `analyze` |
 | `--json` | *(flag, for scan)* | off |
 | `--include-drift` | *(flag, for scan status)* | off |
+| `--port` | `number` *(for webui)* | `3000` |
+
+### Web UI
+
+Launch an integrated web server that provides a browser-based interface for all CLI commands, plus skill/workflow creation with a chat-based wizard.
+
+```bash
+# Start the WebUI server (dev mode)
+npx hivemind-context-governance webui
+npx hivemind-context-governance webui --port 8080
+
+# Or via environment variables
+HIVEMIND_PORT=8080 HIVEMIND_HOST=0.0.0.0 npx hivemind-context-governance webui
+```
+
+**Features:**
+- 📊 Dashboard — session status, governance, metrics, hierarchy
+- 🚀 Init — project initialization wizard (mirrors CLI flags)
+- ⚙️ Settings — view and edit configuration live
+- 🔍 Scan — brownfield scan with action selection
+- 🎯 Skills — list, create (chat wizard), download packaged skills
+- 🔗 Workflows — list, create (chat wizard), download packaged workflows
+- 🛠️ Operations — sync-assets, migrate, purge
+- 📋 Env Config — view current environment configuration
+
+**REST API Endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/status` | Current session and governance state |
+| `GET/PUT` | `/api/settings` | View or update configuration |
+| `POST` | `/api/init` | Initialize HiveMind project |
+| `POST` | `/api/scan` | Run brownfield scan |
+| `POST` | `/api/sync-assets` | Sync OpenCode assets |
+| `POST` | `/api/migrate` | Migrate to graph structure |
+| `POST` | `/api/purge` | Remove .hivemind/ |
+| `GET/POST` | `/api/skills` | List or create skills |
+| `GET` | `/api/skills/:name/download` | Download skill bundle (JSON) |
+| `GET/POST` | `/api/workflows` | List or create workflows |
+| `GET` | `/api/workflows/:name/download` | Download workflow (YAML) |
+| `GET` | `/api/help` | API help information |
+| `GET` | `/api/env-config` | Current server config |
+
+### Docker Deployment
+
+The WebUI is container-ready with zero configuration:
+
+```bash
+# Build and run with Docker
+docker build -t hivemind-webui .
+docker run -p 3000:3000 hivemind-webui
+
+# Or use Docker Compose
+docker compose up -d
+
+# With custom environment
+docker run -p 8080:3000 \
+  -e HIVEMIND_DEFAULT_GOVERNANCE_MODE=strict \
+  -e HIVEMIND_DEFAULT_LANGUAGE=vi \
+  hivemind-webui
+```
+
+All settings are configurable via environment variables — see `.env.example` for the full list.
 
 ### OpenCode Asset Sync
 
