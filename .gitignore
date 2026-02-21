@@ -6,6 +6,8 @@ dist/
 .env
 .env.local
 coverage/
+webui/dist/
+webui/node_modules/
 
 
 

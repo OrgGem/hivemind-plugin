@@ -1,0 +1,42 @@
+# HiveMind WebUI — Docker Compose
+#
+# Usage:
+#   docker compose up -d          # Start in background
+#   docker compose logs -f        # Follow logs
+#   docker compose down           # Stop
+#
+# The project/ directory is mounted as a volume so .hivemind/ state persists.
+
+services:
+  hivemind-webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hivemind-webui
+    ports:
+      - "${HIVEMIND_PORT:-3000}:3000"
+    environment:
+      - HIVEMIND_PORT=3000
+      - HIVEMIND_HOST=0.0.0.0
+      - HIVEMIND_PROJECT_ROOT=/app/project
+      - HIVEMIND_LOG_LEVEL=${HIVEMIND_LOG_LEVEL:-info}
+      - HIVEMIND_DEFAULT_GOVERNANCE_MODE=${HIVEMIND_DEFAULT_GOVERNANCE_MODE:-assisted}
+      - HIVEMIND_DEFAULT_LANGUAGE=${HIVEMIND_DEFAULT_LANGUAGE:-en}
+      - HIVEMIND_DEFAULT_AUTOMATION_LEVEL=${HIVEMIND_DEFAULT_AUTOMATION_LEVEL:-assisted}
+      - HIVEMIND_DEFAULT_EXPERT_LEVEL=${HIVEMIND_DEFAULT_EXPERT_LEVEL:-intermediate}
+      - HIVEMIND_DEFAULT_OUTPUT_STYLE=${HIVEMIND_DEFAULT_OUTPUT_STYLE:-explanatory}
+      - HIVEMIND_DEFAULT_REQUIRE_CODE_REVIEW=${HIVEMIND_DEFAULT_REQUIRE_CODE_REVIEW:-false}
+      - HIVEMIND_DEFAULT_ENFORCE_TDD=${HIVEMIND_DEFAULT_ENFORCE_TDD:-false}
+    volumes:
+      - hivemind-data:/app/project
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/help"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  hivemind-data:
+    driver: local
