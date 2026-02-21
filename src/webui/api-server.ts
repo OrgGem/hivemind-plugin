@@ -434,6 +434,8 @@ function handleGetEnvConfig(res: ServerResponse): void {
 
 // ─── LLM Provider Config ─────────────────────────────────────────────
 
+const DEFAULT_LLM_MAX_TOKENS = 1024
+
 interface LLMProviderConfig {
   api_key: string
   base_url: string
@@ -507,7 +509,7 @@ async function handleLLMChat(dir: string, req: IncomingMessage, res: ServerRespo
     const payload = JSON.stringify({
       model: llmConfig.model,
       messages,
-      max_tokens: 1024,
+      max_tokens: DEFAULT_LLM_MAX_TOKENS,
       temperature: 0.7,
     })
 
@@ -528,7 +530,8 @@ async function handleLLMChat(dir: string, req: IncomingMessage, res: ServerRespo
         proxyRes.on("end", () => {
           const responseBody = Buffer.concat(chunks).toString("utf-8")
           if (proxyRes.statusCode && proxyRes.statusCode >= 400) {
-            reject(new Error(`LLM API error (${proxyRes.statusCode}): ${responseBody}`))
+            const sanitized = responseBody.slice(0, 200).replace(/sk-[a-zA-Z0-9]+/g, "sk-****")
+            reject(new Error(`LLM API error (${proxyRes.statusCode}): ${sanitized}`))
           } else {
             resolve(responseBody)
           }
@@ -552,9 +555,19 @@ async function handleLLMChat(dir: string, req: IncomingMessage, res: ServerRespo
 
 // ─── Init Wizard Data ────────────────────────────────────────────────
 
+interface ProfilePresetData {
+  label: string
+  governance_mode: string
+  automation_level: string
+  expert_level: string
+  output_style: string
+  require_code_review: boolean
+  enforce_tdd: boolean
+}
+
 function handleGetInitWizard(res: ServerResponse): void {
   // Return profile presets so the frontend wizard can use them
-  const profiles: Record<string, { label: string; governance_mode: string; automation_level: string; expert_level: string; output_style: string; require_code_review: boolean; enforce_tdd: boolean }> = {}
+  const profiles: Record<string, ProfilePresetData> = {}
   for (const [key, preset] of Object.entries(PROFILE_PRESETS)) {
     profiles[key] = {
       label: preset.label,
