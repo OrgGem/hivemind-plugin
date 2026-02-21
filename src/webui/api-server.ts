@@ -18,7 +18,10 @@ import { createStateManager, loadConfig, saveConfig } from "../lib/persistence.j
 import { listArchives } from "../lib/planning-fs.js"
 import { getEffectivePaths, hivemindExists } from "../lib/paths.js"
 import { migrateToGraph, isGraphMigrationNeeded } from "../lib/graph-migrate.js"
-import { normalizeAutomationLabel, createConfig, isValidGovernanceMode, isValidLanguage, isValidAutomationLevel, isValidExpertLevel, isValidOutputStyle } from "../schemas/config.js"
+import { normalizeAutomationLabel, createConfig, isValidGovernanceMode, isValidLanguage, isValidAutomationLevel, isValidExpertLevel, isValidOutputStyle, PROFILE_PRESETS } from "../schemas/config.js"
+import { executeCompaction } from "../lib/compaction-engine.js"
+import { request as httpsRequest } from "node:https"
+import { request as httpRequest } from "node:http"
 import { initProject } from "../cli/init.js"
 import { syncOpencodeAssets } from "../cli/sync-assets.js"
 import { runScanCommand } from "../cli/scan.js"
@@ -262,6 +265,15 @@ async function handlePutSettings(dir: string, req: IncomingMessage, res: ServerR
       if (typeof c.be_skeptical === "boolean") cur.agent_behavior.constraints.be_skeptical = c.be_skeptical
     }
   }
+  // Threshold fields (numeric, validated)
+  if (body.thresholds && typeof body.thresholds === "object") {
+    const t = body.thresholds as Record<string, unknown>
+    if (typeof t.max_turns_before_warning === "number" && t.max_turns_before_warning > 0) cur.max_turns_before_warning = t.max_turns_before_warning
+    if (typeof t.auto_compact_on_turns === "number" && t.auto_compact_on_turns > 0) cur.auto_compact_on_turns = t.auto_compact_on_turns
+    if (typeof t.max_active_md_lines === "number" && t.max_active_md_lines > 0) cur.max_active_md_lines = t.max_active_md_lines
+    if (typeof t.stale_session_days === "number" && t.stale_session_days > 0) cur.stale_session_days = t.stale_session_days
+    if (typeof t.commit_suggestion_threshold === "number" && t.commit_suggestion_threshold > 0) cur.commit_suggestion_threshold = t.commit_suggestion_threshold
+  }
   const validated = createConfig(cur)
   await saveConfig(dir, validated)
   sendJson(res, 200, { success: true, message: "Settings updated." })
@@ -341,24 +353,220 @@ async function handlePurge(dir: string, res: ServerResponse): Promise<void> {
   sendJson(res, 200, { success: true, message: "HiveMind purged." })
 }
 
+async function handleCompact(dir: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!hivemindExists(dir)) {
+    sendError(res, 400, "No .hivemind/ found. Initialize first.")
+    return
+  }
+  const body = await parseJsonBody(req)
+  const summary = typeof body.summary === "string" ? body.summary : undefined
+  try {
+    const result = await executeCompaction({ directory: dir, summary })
+    sendJson(res, 200, {
+      success: result.success,
+      status: result.status,
+      archivedSessionId: result.archivedSessionId,
+      newSessionId: result.newSessionId,
+      summaryLine: result.summaryLine,
+      metrics: result.metrics,
+    })
+  } catch (err: unknown) {
+    sendError(res, 500, `Compaction failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+async function handleListArchives(dir: string, res: ServerResponse): Promise<void> {
+  if (!hivemindExists(dir)) {
+    sendJson(res, 200, { archives: [] })
+    return
+  }
+  const archives = await listArchives(dir)
+  sendJson(res, 200, { archives, count: archives.length })
+}
+
+async function handleDeleteSkill(dir: string, name: string, res: ServerResponse): Promise<void> {
+  if (!isSafeName(name)) { sendError(res, 400, "Invalid skill name."); return }
+  const skillDir = join(getSkillsRoot(dir), name)
+  if (!existsSync(skillDir)) { sendError(res, 404, `Skill '${name}' not found in project.`); return }
+  await rm(skillDir, { recursive: true, force: true })
+  sendJson(res, 200, { success: true, message: `Skill '${name}' deleted.` })
+}
+
+async function handleDeleteWorkflow(dir: string, name: string, res: ServerResponse): Promise<void> {
+  if (!isSafeName(name)) { sendError(res, 400, "Invalid workflow name."); return }
+  const workflowsDir = getWorkflowsRoot(dir)
+  if (!existsSync(workflowsDir)) { sendError(res, 404, `Workflow '${name}' not found.`); return }
+  const entries = await readdir(workflowsDir)
+  for (const file of entries) {
+    if (basename(file, extname(file).toLowerCase()) === name) {
+      await rm(join(workflowsDir, file))
+      sendJson(res, 200, { success: true, message: `Workflow '${name}' deleted.` })
+      return
+    }
+  }
+  sendError(res, 404, `Workflow '${name}' not found.`)
+}
+
 function handleHelp(res: ServerResponse): void {
   sendJson(res, 200, {
     commands: [
       { name: "status", method: "GET", path: "/api/status", description: "Current session state" },
-      { name: "settings", method: "GET/PUT", path: "/api/settings", description: "View or update config" },
+      { name: "settings", method: "GET/PUT", path: "/api/settings", description: "View or update config (incl. thresholds)" },
       { name: "init", method: "POST", path: "/api/init", description: "Initialize project" },
+      { name: "init/wizard", method: "GET", path: "/api/init/wizard", description: "Profile presets for init wizard" },
+      { name: "compact", method: "POST", path: "/api/compact", description: "Archive current session and reset" },
+      { name: "archives", method: "GET", path: "/api/archives", description: "List archived sessions" },
       { name: "scan", method: "POST", path: "/api/scan", description: "Brownfield scan" },
       { name: "sync-assets", method: "POST", path: "/api/sync-assets", description: "Sync OpenCode assets" },
       { name: "migrate", method: "POST", path: "/api/migrate", description: "Migrate to graph" },
       { name: "purge", method: "POST", path: "/api/purge", description: "Remove .hivemind/" },
-      { name: "skills", method: "GET/POST", path: "/api/skills", description: "List or create skills" },
-      { name: "workflows", method: "GET/POST", path: "/api/workflows", description: "List or create workflows" },
+      { name: "skills", method: "GET/POST/DELETE", path: "/api/skills", description: "List, create, or delete skills" },
+      { name: "workflows", method: "GET/POST/DELETE", path: "/api/workflows", description: "List, create, or delete workflows" },
+      { name: "llm/config", method: "GET/PUT", path: "/api/llm/config", description: "LLM provider configuration" },
+      { name: "llm/chat", method: "POST", path: "/api/llm/chat", description: "Chat via LLM provider (OpenAI compatible)" },
     ],
   })
 }
 
 function handleGetEnvConfig(res: ServerResponse): void {
   sendJson(res, 200, loadWebUIConfig())
+}
+
+// ─── LLM Provider Config ─────────────────────────────────────────────
+
+interface LLMProviderConfig {
+  api_key: string
+  base_url: string
+  model: string
+  enabled: boolean
+}
+
+const DEFAULT_LLM_CONFIG: LLMProviderConfig = {
+  api_key: "",
+  base_url: "https://api.openai.com/v1",
+  model: "gpt-3.5-turbo",
+  enabled: false,
+}
+
+function getLLMConfigPath(dir: string): string {
+  return join(getEffectivePaths(dir).root, "llm-config.json")
+}
+
+async function loadLLMConfig(dir: string): Promise<LLMProviderConfig> {
+  const configPath = getLLMConfigPath(dir)
+  try {
+    if (existsSync(configPath)) {
+      const data = await readFile(configPath, "utf-8")
+      const parsed = JSON.parse(data) as Partial<LLMProviderConfig>
+      return { ...DEFAULT_LLM_CONFIG, ...parsed }
+    }
+  } catch { /* fallback to defaults */ }
+  return { ...DEFAULT_LLM_CONFIG }
+}
+
+async function saveLLMConfig(dir: string, config: LLMProviderConfig): Promise<void> {
+  const configPath = getLLMConfigPath(dir)
+  await mkdir(dirname(configPath), { recursive: true })
+  await writeFile(configPath, JSON.stringify(config, null, 2))
+}
+
+async function handleGetLLMConfig(dir: string, res: ServerResponse): Promise<void> {
+  const config = await loadLLMConfig(dir)
+  // Don't expose the full API key — mask it
+  const masked = { ...config, api_key: config.api_key ? config.api_key.slice(0, 4) + "****" + config.api_key.slice(-4) : "" }
+  sendJson(res, 200, masked)
+}
+
+async function handlePutLLMConfig(dir: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await parseJsonBody(req)
+  const current = await loadLLMConfig(dir)
+  if (typeof body.api_key === "string") current.api_key = body.api_key
+  if (typeof body.base_url === "string") current.base_url = body.base_url
+  if (typeof body.model === "string") current.model = body.model
+  if (typeof body.enabled === "boolean") current.enabled = body.enabled
+  await saveLLMConfig(dir, current)
+  sendJson(res, 200, { success: true, message: "LLM config saved." })
+}
+
+async function handleLLMChat(dir: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const llmConfig = await loadLLMConfig(dir)
+  if (!llmConfig.enabled || !llmConfig.api_key) {
+    sendError(res, 400, "LLM provider not configured or disabled. Configure it in the LLM Config section.")
+    return
+  }
+  const body = await parseJsonBody(req)
+  const messages = body.messages as Array<{ role: string; content: string }>
+  if (!Array.isArray(messages) || messages.length === 0) {
+    sendError(res, 400, "Messages array is required.")
+    return
+  }
+
+  try {
+    const baseUrl = llmConfig.base_url.replace(/\/+$/, "")
+    const chatUrl = `${baseUrl}/chat/completions`
+    const payload = JSON.stringify({
+      model: llmConfig.model,
+      messages,
+      max_tokens: 1024,
+      temperature: 0.7,
+    })
+
+    const parsedUrl = new URL(chatUrl)
+    const isHttps = parsedUrl.protocol === "https:"
+    const requestFn = isHttps ? httpsRequest : httpRequest
+
+    const proxyResponse = await new Promise<string>((resolve, reject) => {
+      const proxyReq = requestFn(chatUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${llmConfig.api_key}`,
+        },
+      }, (proxyRes) => {
+        const chunks: Buffer[] = []
+        proxyRes.on("data", (chunk: Buffer) => chunks.push(chunk))
+        proxyRes.on("end", () => {
+          const responseBody = Buffer.concat(chunks).toString("utf-8")
+          if (proxyRes.statusCode && proxyRes.statusCode >= 400) {
+            reject(new Error(`LLM API error (${proxyRes.statusCode}): ${responseBody}`))
+          } else {
+            resolve(responseBody)
+          }
+        })
+        proxyRes.on("error", reject)
+      })
+      proxyReq.on("error", reject)
+      proxyReq.write(payload)
+      proxyReq.end()
+    })
+
+    const parsed = JSON.parse(proxyResponse) as {
+      choices?: Array<{ message?: { content?: string } }>
+    }
+    const content = parsed.choices?.[0]?.message?.content ?? ""
+    sendJson(res, 200, { success: true, content })
+  } catch (err: unknown) {
+    sendError(res, 502, `LLM request failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+// ─── Init Wizard Data ────────────────────────────────────────────────
+
+function handleGetInitWizard(res: ServerResponse): void {
+  // Return profile presets so the frontend wizard can use them
+  const profiles: Record<string, { label: string; governance_mode: string; automation_level: string; expert_level: string; output_style: string; require_code_review: boolean; enforce_tdd: boolean }> = {}
+  for (const [key, preset] of Object.entries(PROFILE_PRESETS)) {
+    profiles[key] = {
+      label: preset.label,
+      governance_mode: preset.governance_mode,
+      automation_level: preset.automation_level,
+      expert_level: preset.expert_level,
+      output_style: preset.output_style,
+      require_code_review: preset.require_code_review,
+      enforce_tdd: preset.enforce_tdd,
+    }
+  }
+  sendJson(res, 200, { profiles })
 }
 
 // ─── Skill Handlers ──────────────────────────────────────────────────
@@ -569,8 +777,18 @@ async function handleRequest(cfg: WebUIConfig, req: IncomingMessage, res: Server
       if (pathname === "/api/sync-assets" && method === "POST") return await handleSyncAssets(dir, req, res)
       if (pathname === "/api/migrate" && method === "POST") return await handleMigrate(dir, res)
       if (pathname === "/api/purge" && method === "POST") return await handlePurge(dir, res)
+      if (pathname === "/api/compact" && method === "POST") return await handleCompact(dir, req, res)
+      if (pathname === "/api/archives" && method === "GET") return await handleListArchives(dir, res)
       if (pathname === "/api/help" && method === "GET") return handleHelp(res)
       if (pathname === "/api/env-config" && method === "GET") return handleGetEnvConfig(res)
+
+      // LLM provider endpoints
+      if (pathname === "/api/llm/config" && method === "GET") return await handleGetLLMConfig(dir, res)
+      if (pathname === "/api/llm/config" && method === "PUT") return await handlePutLLMConfig(dir, req, res)
+      if (pathname === "/api/llm/chat" && method === "POST") return await handleLLMChat(dir, req, res)
+
+      // Init wizard data
+      if (pathname === "/api/init/wizard" && method === "GET") return handleGetInitWizard(res)
 
       // Skill endpoints
       if (pathname === "/api/skills" && method === "GET") return await handleListSkills(dir, res)
@@ -583,6 +801,10 @@ async function handleRequest(cfg: WebUIConfig, req: IncomingMessage, res: Server
         const name = pathname.slice("/api/skills/".length)
         return await handleGetSkill(dir, name, res)
       }
+      if (pathname.startsWith("/api/skills/") && method === "DELETE") {
+        const name = pathname.slice("/api/skills/".length)
+        return await handleDeleteSkill(dir, name, res)
+      }
 
       // Workflow endpoints
       if (pathname === "/api/workflows" && method === "GET") return await handleListWorkflows(dir, res)
@@ -594,6 +816,10 @@ async function handleRequest(cfg: WebUIConfig, req: IncomingMessage, res: Server
         }
         const name = pathname.slice("/api/workflows/".length)
         return await handleGetWorkflow(dir, name, res)
+      }
+      if (pathname.startsWith("/api/workflows/") && method === "DELETE") {
+        const name = pathname.slice("/api/workflows/".length)
+        return await handleDeleteWorkflow(dir, name, res)
       }
 
       sendError(res, 404, `Unknown endpoint: ${method} ${pathname}`)

@@ -42,7 +42,7 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
   <nav class="fixed inset-y-0 left-0 w-56 bg-gray-900 text-white flex flex-col z-30">
     <div class="p-4 border-b border-gray-700">
       <h1 class="text-lg font-bold tracking-tight">&#x1F41D; HiveMind</h1>
-      <p class="text-xs text-gray-400 mt-1">Context Governance WebUI</p>
+      <p class="text-xs text-gray-400 mt-1">Standalone WebUI Server</p>
     </div>
     <div class="flex-1 overflow-y-auto py-2">
       <button v-for="item in navItems" :key="item.id"
@@ -54,7 +54,7 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
       </button>
     </div>
     <div class="p-3 border-t border-gray-700 text-xs text-gray-500">
-      Container Ready
+      Standalone Server
     </div>
   </nav>
 
@@ -236,12 +236,18 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
           <label class="flex items-center gap-2 text-sm"><input type="checkbox" v-model="settingsForm.agent_behavior.constraints.be_skeptical" class="rounded"> Be Skeptical</label>
         </div>
         <div v-if="settings.thresholds" class="border-t pt-4">
-          <h3 class="text-lg font-semibold text-gray-800 mb-3">Thresholds <span class="text-xs text-gray-400 font-normal">(read-only, edit config.json)</span></h3>
-          <div class="grid grid-cols-2 gap-2 text-sm text-gray-600">
-            <p>Drift warning: <span class="font-medium text-gray-900">{{ settings.thresholds.max_turns_before_warning }} turns</span></p>
-            <p>Long session: <span class="font-medium text-gray-900">{{ settings.thresholds.auto_compact_on_turns }} turns</span></p>
-            <p>Max lines: <span class="font-medium text-gray-900">{{ settings.thresholds.max_active_md_lines }}</span></p>
-            <p>Stale session: <span class="font-medium text-gray-900">{{ settings.thresholds.stale_session_days }} days</span></p>
+          <h3 class="text-lg font-semibold text-gray-800 mb-3">Thresholds</h3>
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="block text-xs text-gray-500 mb-1">Drift warning (turns)</label>
+              <input type="number" v-model.number="settingsForm.thresholds.max_turns_before_warning" class="w-full border rounded-md px-3 py-2 text-sm" min="1"></div>
+            <div><label class="block text-xs text-gray-500 mb-1">Long session (turns)</label>
+              <input type="number" v-model.number="settingsForm.thresholds.auto_compact_on_turns" class="w-full border rounded-md px-3 py-2 text-sm" min="1"></div>
+            <div><label class="block text-xs text-gray-500 mb-1">Max active lines</label>
+              <input type="number" v-model.number="settingsForm.thresholds.max_active_md_lines" class="w-full border rounded-md px-3 py-2 text-sm" min="1"></div>
+            <div><label class="block text-xs text-gray-500 mb-1">Stale session (days)</label>
+              <input type="number" v-model.number="settingsForm.thresholds.stale_session_days" class="w-full border rounded-md px-3 py-2 text-sm" min="1"></div>
+            <div><label class="block text-xs text-gray-500 mb-1">Commit suggestion (files)</label>
+              <input type="number" v-model.number="settingsForm.thresholds.commit_suggestion_threshold" class="w-full border rounded-md px-3 py-2 text-sm" min="1"></div>
           </div>
         </div>
         <button type="submit" :disabled="loading" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium disabled:opacity-50">
@@ -330,6 +336,7 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
             </div>
           </div>
           <button @click="downloadSkill(skill.name)" class="ml-3 shrink-0 px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded text-gray-700" title="Download">&#x2B07;&#xFE0F;</button>
+          <button v-if="skill.source==='project'" @click="deleteSkill(skill.name)" class="ml-1 shrink-0 px-2 py-1 text-xs bg-red-50 hover:bg-red-100 rounded text-red-600" title="Delete">&#x1F5D1;</button>
         </div>
       </div>
       <p v-if="skillsList.length===0 && !skillChat.active" class="text-gray-500 text-sm mt-4">No skills found. Click <em>Create Skill</em> to start!</p>
@@ -395,6 +402,7 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
             </div>
           </div>
           <button @click="downloadWorkflow(wf.name)" class="ml-3 shrink-0 px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded text-gray-700" title="Download">&#x2B07;&#xFE0F;</button>
+          <button v-if="wf.source==='project'" @click="deleteWorkflow(wf.name)" class="ml-1 shrink-0 px-2 py-1 text-xs bg-red-50 hover:bg-red-100 rounded text-red-600" title="Delete">&#x1F5D1;</button>
         </div>
       </div>
       <p v-if="workflowsList.length===0 && !wfChat.active" class="text-gray-500 text-sm mt-4">No workflows found. Click <em>Create Workflow</em> to start!</p>
@@ -404,6 +412,27 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
     <section v-if="currentView==='operations'">
       <h2 class="text-2xl font-bold text-gray-900 mb-6">Operations</h2>
       <div class="space-y-4 max-w-2xl">
+        <div class="bg-white rounded-lg shadow border p-5">
+          <h3 class="font-semibold text-gray-900 mb-2">&#x1F4E6; Compact Session</h3>
+          <p class="text-sm text-gray-600 mb-3">Archive the current session and start fresh. Preserves history and memory.</p>
+          <div class="flex gap-3 items-end flex-wrap">
+            <div class="flex-1"><label class="block text-xs text-gray-500 mb-1">Summary (optional)</label>
+              <input v-model="compactSummary" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Brief summary of what was accomplished"></div>
+            <button @click="runCompact" :disabled="loading" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm disabled:opacity-50">Compact</button>
+          </div>
+          <pre v-if="compactResult" class="mt-3 bg-gray-50 border rounded p-3 text-xs whitespace-pre-wrap">{{ JSON.stringify(compactResult,null,2) }}</pre>
+        </div>
+        <div class="bg-white rounded-lg shadow border p-5">
+          <h3 class="font-semibold text-gray-900 mb-2">&#x1F4DA; Session Archives</h3>
+          <p class="text-sm text-gray-600 mb-3">Previously archived sessions.</p>
+          <button @click="loadArchives" :disabled="loading" class="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded text-sm disabled:opacity-50 mb-3">&#x21BB; Load Archives</button>
+          <div v-if="archivesList" class="text-sm">
+            <p class="text-gray-500 mb-2">{{ archivesList.count }} archived session(s)</p>
+            <ul v-if="archivesList.archives.length > 0" class="space-y-1">
+              <li v-for="a in archivesList.archives" :key="a" class="font-mono text-xs bg-gray-50 px-2 py-1 rounded border">{{ a }}</li>
+            </ul>
+          </div>
+        </div>
         <div class="bg-white rounded-lg shadow border p-5">
           <h3 class="font-semibold text-gray-900 mb-2">&#x1F4E6; Sync Assets</h3>
           <p class="text-sm text-gray-600 mb-3">Copy packaged OpenCode assets to .opencode/ directory.</p>
@@ -445,6 +474,56 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
       </div>
     </section>
 
+    <!-- ═══════════ LLM CONFIG ═══════════ -->
+    <section v-if="currentView==='llmconfig'">
+      <h2 class="text-2xl font-bold text-gray-900 mb-6">LLM Provider Configuration</h2>
+      <div class="bg-white rounded-lg shadow border p-6 max-w-2xl space-y-5">
+        <p class="text-sm text-gray-600 mb-2">Configure an <strong>OpenAI API-compatible</strong> LLM provider. This powers the interactive wizards for Init, Skill, and Workflow creation.</p>
+
+        <div class="flex items-center gap-3 p-3 rounded-lg" :class="llmForm.enabled ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'">
+          <label class="flex items-center gap-2 text-sm font-medium cursor-pointer">
+            <input type="checkbox" v-model="llmForm.enabled" class="rounded">
+            <span :class="llmForm.enabled ? 'text-green-800' : 'text-gray-600'">{{ llmForm.enabled ? '&#x2705; LLM Provider Enabled' : 'LLM Provider Disabled' }}</span>
+          </label>
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Base URL</label>
+            <input v-model="llmForm.base_url" type="text" class="w-full border rounded-md px-3 py-2 text-sm font-mono" placeholder="https://api.openai.com/v1">
+            <p class="text-xs text-gray-400 mt-1">OpenAI: https://api.openai.com/v1 &#x2022; Local: http://localhost:11434/v1 &#x2022; Any OpenAI-compatible endpoint</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+            <div class="relative">
+              <input v-model="llmForm.api_key" :type="showApiKey ? 'text' : 'password'" class="w-full border rounded-md px-3 py-2 text-sm font-mono pr-20" placeholder="sk-...">
+              <button @click="showApiKey = !showApiKey" type="button" class="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded text-gray-600">
+                {{ showApiKey ? 'Hide' : 'Show' }}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
+            <input v-model="llmForm.model" type="text" class="w-full border rounded-md px-3 py-2 text-sm font-mono" placeholder="gpt-3.5-turbo">
+            <p class="text-xs text-gray-400 mt-1">e.g. gpt-4o, gpt-3.5-turbo, deepseek-chat, llama3, etc.</p>
+          </div>
+        </div>
+
+        <div class="flex gap-3 pt-2">
+          <button @click="saveLLMConfig" :disabled="loading" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium disabled:opacity-50">
+            {{ loading ? 'Saving&#x2026;' : '&#x1F4BE; Save Configuration' }}
+          </button>
+          <button @click="testLLMConnection" :disabled="loading || !llmForm.enabled" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium disabled:opacity-50">
+            {{ loading ? 'Testing&#x2026;' : '&#x1F50C; Test Connection' }}
+          </button>
+        </div>
+
+        <div v-if="llmTestResult" class="p-3 rounded-lg text-sm" :class="llmTestResult.success ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'">
+          {{ llmTestResult.message }}
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 </div>
@@ -468,6 +547,7 @@ createApp({
       { id: 'skills',    icon: '🎯', label: 'Skills' },
       { id: 'workflows', icon: '🔗', label: 'Workflows' },
       { id: 'operations',icon: '🛠️', label: 'Operations' },
+      { id: 'llmconfig', icon: '🤖', label: 'LLM Config' },
       { id: 'envconfig', icon: '📋', label: 'Env Config' },
     ]
 
@@ -730,7 +810,8 @@ createApp({
     const settingsForm = reactive({
       governance_mode:'assisted', language:'en', automation_level:'assisted',
       agent_behavior:{ expert_level:'intermediate', output_style:'explanatory',
-        constraints:{ require_code_review:false, enforce_tdd:false, explain_reasoning:true, be_skeptical:false }}
+        constraints:{ require_code_review:false, enforce_tdd:false, explain_reasoning:true, be_skeptical:false }},
+      thresholds:{ max_turns_before_warning:5, auto_compact_on_turns:20, max_active_md_lines:50, stale_session_days:3, commit_suggestion_threshold:5 }
     })
     async function loadSettings() {
       try {
@@ -743,6 +824,7 @@ createApp({
             settingsForm.agent_behavior.output_style=d.agent_behavior.output_style
             if(d.agent_behavior.constraints) Object.assign(settingsForm.agent_behavior.constraints, d.agent_behavior.constraints)
           }
+          if(d.thresholds) Object.assign(settingsForm.thresholds, d.thresholds)
         }
       } catch(e){showToast('Settings load failed','error')}
     }
@@ -1057,10 +1139,45 @@ createApp({
 
     function downloadWorkflow(name) { window.open('/api/workflows/' + encodeURIComponent(name) + '/download') }
 
+    async function deleteSkill(name) {
+      if(!confirm('Delete skill "' + name + '"?')) return
+      try {
+        const d = await api('/api/skills/' + encodeURIComponent(name), { method: 'DELETE' })
+        showToast(d.message || 'Deleted', d.success ? 'success' : 'error')
+        loadSkills()
+      } catch(e){ showToast('Delete failed','error') }
+    }
+
+    async function deleteWorkflow(name) {
+      if(!confirm('Delete workflow "' + name + '"?')) return
+      try {
+        const d = await api('/api/workflows/' + encodeURIComponent(name), { method: 'DELETE' })
+        showToast(d.message || 'Deleted', d.success ? 'success' : 'error')
+        loadWorkflows()
+      } catch(e){ showToast('Delete failed','error') }
+    }
+
     // ── Operations ──
     const opsForm = reactive({ syncTarget:'project', syncOverwrite:false, syncClean:false })
     const syncResult = ref(null)
     const migrateResult = ref(null)
+    const compactSummary = ref('')
+    const compactResult = ref(null)
+    const archivesList = ref(null)
+
+    async function runCompact() {
+      loading.value=true; compactResult.value=null
+      try {
+        compactResult.value = await api('/api/compact',{method:'POST',body:JSON.stringify({summary:compactSummary.value||undefined})})
+        showToast(compactResult.value.success ? 'Session compacted' : 'Compaction failed', compactResult.value.success?'success':'error')
+        loadStatus()
+      } catch(e){showToast('Compaction failed','error')} finally{loading.value=false}
+    }
+    async function loadArchives() {
+      loading.value=true
+      try { archivesList.value = await api('/api/archives') }
+      catch(e){showToast('Archives load failed','error')} finally{loading.value=false}
+    }
 
     async function runSyncAssets() {
       loading.value=true; syncResult.value=null
@@ -1092,6 +1209,41 @@ createApp({
       catch(e){ showToast('Env config load failed','error') }
     }
 
+    // ── LLM Config ──
+    const showApiKey = ref(false)
+    const llmTestResult = ref(null)
+    const llmForm = reactive({
+      api_key: '', base_url: 'https://api.openai.com/v1', model: 'gpt-3.5-turbo', enabled: false
+    })
+    async function loadLLMConfig() {
+      try {
+        const d = await api('/api/llm/config')
+        llmForm.api_key = d.api_key || ''
+        llmForm.base_url = d.base_url || 'https://api.openai.com/v1'
+        llmForm.model = d.model || 'gpt-3.5-turbo'
+        llmForm.enabled = d.enabled || false
+      } catch(e){ /* ignore */ }
+    }
+    async function saveLLMConfig() {
+      loading.value = true; llmTestResult.value = null
+      try {
+        const d = await api('/api/llm/config', { method: 'PUT', body: JSON.stringify(llmForm) })
+        showToast(d.message || 'Saved', d.success ? 'success' : 'error')
+      } catch(e){ showToast('Save failed','error') } finally { loading.value = false }
+    }
+    async function testLLMConnection() {
+      loading.value = true; llmTestResult.value = null
+      try {
+        const d = await api('/api/llm/chat', {
+          method: 'POST',
+          body: JSON.stringify({ messages: [{ role: 'user', content: 'Hello, respond with just "OK" to confirm the connection works.' }] })
+        })
+        if(d.success) { llmTestResult.value = { success: true, message: '\\u2705 Connection successful! Response: ' + (d.content || '').slice(0, 100) } }
+        else { llmTestResult.value = { success: false, message: '\\u274C ' + (d.error || 'Unknown error') } }
+      } catch(e){ llmTestResult.value = { success: false, message: '\\u274C Connection failed: ' + e.message } }
+      finally { loading.value = false }
+    }
+
     // ── Lifecycle ──
     watch(currentView, v => {
       if(v==='dashboard') loadStatus()
@@ -1099,6 +1251,7 @@ createApp({
       if(v==='skills') loadSkills()
       if(v==='workflows') loadWorkflows()
       if(v==='envconfig') loadEnvConfig()
+      if(v==='llmconfig') loadLLMConfig()
     })
     onMounted(()=>{ loadStatus() })
 
@@ -1106,12 +1259,15 @@ createApp({
       currentView, loading, toast, navItems, showToast,
       status, loadStatus,
       initForm, runInit,
+      initWizard, initChatBox, toggleInitWizard, answerInitWizard, toggleInitExtra,
       settings, settingsForm, loadSettings, saveSettings,
       scanForm, scanResult, runScan,
-      skillsList, skillChat, skillChatBox, startSkillChat, answerSkillChat, downloadSkill, loadSkills,
-      workflowsList, wfChat, wfChatBox, startWorkflowChat, answerWfChat, downloadWorkflow, loadWorkflows,
+      skillsList, skillChat, skillChatBox, startSkillChat, answerSkillChat, downloadSkill, deleteSkill, loadSkills,
+      workflowsList, wfChat, wfChatBox, startWorkflowChat, answerWfChat, downloadWorkflow, deleteWorkflow, loadWorkflows,
       opsForm, syncResult, migrateResult, runSyncAssets, runMigrate, confirmPurge,
+      compactSummary, compactResult, runCompact, archivesList, loadArchives,
       envConfig, loadEnvConfig,
+      llmForm, showApiKey, llmTestResult, loadLLMConfig, saveLLMConfig, testLLMConnection,
     }
   }
 }).mount('#app')
