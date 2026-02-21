@@ -121,8 +121,66 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
 
     <!-- ═══════════ INIT ═══════════ -->
     <section v-if="currentView==='init'">
-      <h2 class="text-2xl font-bold text-gray-900 mb-6">Initialize Project</h2>
-      <form @submit.prevent="runInit" class="bg-white rounded-lg shadow border p-6 max-w-2xl space-y-4">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-2xl font-bold text-gray-900">Initialize Project</h2>
+        <button @click="toggleInitWizard" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium">
+          {{ initWizard.active ? '&#x2715; Close Wizard' : '&#x1F41D; Start Setup Wizard' }}
+        </button>
+      </div>
+
+      <!-- ── Init Chat Wizard ── -->
+      <div v-if="initWizard.active" class="bg-white rounded-lg shadow border mb-6 max-w-2xl flex flex-col" style="height:560px">
+        <div class="px-4 py-3 border-b bg-gray-50 rounded-t-lg">
+          <h3 class="font-semibold text-gray-800 text-sm">&#x1F41D; HiveMind + HiveFiver v2 &#x2014; Setup Wizard</h3>
+          <p class="text-xs text-gray-500">Interactive guided setup &#x2014; mirrors CLI wizard flow</p>
+        </div>
+
+        <!-- Messages -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-3" ref="initChatBox">
+          <div v-for="(msg, i) in initWizard.messages" :key="i"
+            :class="['flex', msg.from==='system' ? 'justify-start' : 'justify-end']">
+            <div :class="['chat-bubble rounded-lg px-3 py-2 text-sm', msg.from==='system' ? 'chat-bubble-system' : 'chat-bubble-user']">
+              <div v-if="msg.options" class="space-y-1 mt-2">
+                <button v-for="opt in msg.options" :key="opt.value||opt"
+                  @click="answerInitWizard(opt.value||opt)"
+                  class="block w-full text-left px-3 py-1.5 rounded bg-white hover:bg-indigo-50 border text-xs font-medium">
+                  <span class="font-semibold">{{ opt.label||opt }}</span>
+                  <span v-if="opt.hint" class="block text-gray-400 text-xs mt-0.5">{{ opt.hint }}</span>
+                </button>
+              </div>
+              <div v-else-if="msg.checkboxes" class="space-y-1 mt-2">
+                <label v-for="cb in msg.checkboxes" :key="cb.value" class="flex items-center gap-2 px-3 py-1.5 rounded bg-white border text-xs font-medium cursor-pointer hover:bg-indigo-50">
+                  <input type="checkbox" :checked="initWizard.selectedExtras.includes(cb.value)" @change="toggleInitExtra(cb.value)" class="rounded">
+                  <span>{{ cb.label }}</span>
+                  <span v-if="cb.hint" class="text-gray-400 ml-1">&#x2014; {{ cb.hint }}</span>
+                </label>
+                <button @click="answerInitWizard('__extras_done__')" class="mt-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium">Continue &#x2192;</button>
+              </div>
+              <span v-else v-html="msg.text"></span>
+            </div>
+          </div>
+          <!-- Typing indicator -->
+          <div v-if="initWizard.typing" class="flex justify-start">
+            <div class="chat-bubble chat-bubble-system rounded-lg px-4 py-3 flex gap-1">
+              <span class="typing-dot w-2 h-2 bg-indigo-400 rounded-full inline-block"></span>
+              <span class="typing-dot w-2 h-2 bg-indigo-400 rounded-full inline-block"></span>
+              <span class="typing-dot w-2 h-2 bg-indigo-400 rounded-full inline-block"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input (not used in wizard, all option-based) -->
+        <div v-if="initWizard.waitingInput" class="border-t p-3 flex gap-2">
+          <input v-model="initWizard.inputText" @keyup.enter="answerInitWizard(initWizard.inputText)"
+            class="flex-1 border rounded-md px-3 py-2 text-sm" :placeholder="initWizard.inputPlaceholder" autofocus>
+          <button @click="answerInitWizard(initWizard.inputText)"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm">Send</button>
+        </div>
+      </div>
+
+      <!-- ── Fallback: flat form if wizard not active ── -->
+      <form v-if="!initWizard.active" @submit.prevent="runInit" class="bg-white rounded-lg shadow border p-6 max-w-2xl space-y-4">
+        <p class="text-sm text-gray-500 mb-2">Quick init with manual options &#x2014; or use the <strong>Setup Wizard</strong> above for guided setup.</p>
         <div class="grid grid-cols-2 gap-4">
           <div><label class="block text-sm font-medium text-gray-700 mb-1">Language</label>
             <select v-model="initForm.language" class="w-full border rounded-md px-3 py-2 text-sm"><option value="en">English</option><option value="vi">Ti&#x1EBF;ng Vi&#x1EC7;t</option></select></div>
@@ -443,6 +501,228 @@ createApp({
         showToast(d.message||'Done', d.success?'success':'error')
         loadStatus()
       } catch(e){showToast('Init failed','error')} finally{loading.value=false}
+    }
+
+    // ══════════ INIT CHAT WIZARD ══════════
+    const initChatBox = ref(null)
+    const initWizard = reactive({
+      active: false, messages: [], step: '', typing: false,
+      waitingInput: false, inputText: '', inputPlaceholder: '',
+      selectedExtras: [],
+      data: {
+        profile: 'intermediate',
+        governance_mode: 'assisted', language: 'en', automation_level: 'assisted',
+        expert_level: 'intermediate', output_style: 'explanatory',
+        require_code_review: false, enforce_tdd: false,
+        sync_target: 'project'
+      },
+      presets: null
+    })
+
+    function scrollInitChat() { nextTick(()=>{ if(initChatBox.value) initChatBox.value.scrollTop = initChatBox.value.scrollHeight }) }
+
+    function initSysMsg(text, options, checkboxes) {
+      initWizard.typing = true; scrollInitChat()
+      setTimeout(()=>{
+        initWizard.typing = false
+        initWizard.messages.push({ from:'system', text, options: options||null, checkboxes: checkboxes||null })
+        scrollInitChat()
+      }, 400)
+    }
+
+    async function toggleInitWizard() {
+      if(initWizard.active){ initWizard.active=false; return }
+      initWizard.active = true; initWizard.messages = []; initWizard.step = 'profile'
+      initWizard.selectedExtras = []
+      initWizard.data = {
+        profile:'intermediate', governance_mode:'assisted', language:'en',
+        automation_level:'assisted', expert_level:'intermediate', output_style:'explanatory',
+        require_code_review:false, enforce_tdd:false, sync_target:'project'
+      }
+      // Fetch presets from API
+      try { initWizard.presets = await api('/api/init/wizard') } catch(e){ initWizard.presets = null }
+      initWizard.waitingInput = false
+      initSysMsg("Welcome! Let's set up HiveMind together. \\u{1F41D}\\u{1F680}<br><br><strong>What kind of developer are you?</strong>", [
+        { value:'beginner', label:'Beginner', hint:'Learning with AI. Maximum guidance, asks before acting.' },
+        { value:'intermediate', label:'Intermediate (recommended)', hint:'Comfortable with AI tools. Balanced automation.' },
+        { value:'advanced', label:'Advanced', hint:'Experienced. Permissive, outline responses, full control.' },
+        { value:'expert', label:'Expert', hint:'Senior developer. Minimal guidance, terse responses.' },
+        { value:'coach', label:'Coach (max guidance)', hint:'Strict governance, skeptical, asks everything.' },
+      ])
+    }
+
+    function toggleInitExtra(val) {
+      const idx = initWizard.selectedExtras.indexOf(val)
+      if(idx === -1) initWizard.selectedExtras.push(val)
+      else initWizard.selectedExtras.splice(idx, 1)
+    }
+
+    function getPresetDefaults(profileKey) {
+      if(initWizard.presets && initWizard.presets.profiles && initWizard.presets.profiles[profileKey]) {
+        return initWizard.presets.profiles[profileKey]
+      }
+      // Fallback defaults
+      const defaults = {
+        beginner:      { governance_mode:'assisted', automation_level:'assisted', expert_level:'beginner',     output_style:'explanatory', require_code_review:false, enforce_tdd:false },
+        intermediate:  { governance_mode:'assisted', automation_level:'assisted', expert_level:'intermediate', output_style:'explanatory', require_code_review:false, enforce_tdd:false },
+        advanced:      { governance_mode:'permissive',automation_level:'guided', expert_level:'advanced',     output_style:'outline',      require_code_review:false, enforce_tdd:false },
+        expert:        { governance_mode:'permissive',automation_level:'manual', expert_level:'expert',       output_style:'minimal',      require_code_review:false, enforce_tdd:false },
+        coach:         { governance_mode:'strict',    automation_level:'coach',  expert_level:'beginner',     output_style:'skeptical',    require_code_review:true,  enforce_tdd:false },
+      }
+      return defaults[profileKey] || defaults.intermediate
+    }
+
+    async function answerInitWizard(answer) {
+      const val = (typeof answer === 'string' ? answer : '').trim()
+      if(!val && initWizard.step !== 'extras') return
+      initWizard.inputText = ''
+      if(val && val !== '__extras_done__') initWizard.messages.push({ from:'user', text: val })
+      scrollInitChat()
+
+      const isCoach = initWizard.data.automation_level === 'coach'
+
+      switch(initWizard.step) {
+        case 'profile': {
+          initWizard.data.profile = val
+          const p = getPresetDefaults(val)
+          Object.assign(initWizard.data, p)
+          initWizard.step = 'governance_mode'
+          initSysMsg("Profile: <strong>" + val + "</strong> \\u2705<br><br><strong>Governance mode</strong> \\u2014 how strict should session enforcement be?", [
+            { value:'assisted', label:'Assisted (recommended)', hint:'Session starts OPEN. Warns on drift but never blocks.' },
+            { value:'strict',   label:'Strict',                 hint:'Session starts LOCKED. Must declare_intent before writing.' },
+            { value:'permissive',label:'Permissive',            hint:'Always OPEN. Silent tracking only, zero pressure.' },
+          ])
+          break
+        }
+
+        case 'governance_mode':
+          initWizard.data.governance_mode = val
+          initWizard.step = 'language'
+          initSysMsg("Governance: <strong>" + val + "</strong> \\u2705<br><br><strong>Language</strong> for agent responses?", [
+            { value:'en', label:'English' },
+            { value:'vi', label:'Ti\\u1EBFng Vi\\u1EC7t' },
+          ])
+          break
+
+        case 'language':
+          initWizard.data.language = val
+          initWizard.step = 'automation_level'
+          initSysMsg("Language: <strong>" + (val==='en'?'English':'Ti\\u1EBFng Vi\\u1EC7t') + "</strong> \\u2705<br><br><strong>Automation level</strong> \\u2014 how much should HiveMind intervene?", [
+            { value:'manual',   label:'Manual',                hint:'Minimal automation. You drive everything.' },
+            { value:'guided',   label:'Guided',                hint:'Gentle nudges when drift detected.' },
+            { value:'assisted', label:'Assisted (recommended)',hint:'Active guidance with evidence-based warnings.' },
+            { value:'full',     label:'Full',                  hint:'Maximum governance. System argues back with evidence.' },
+            { value:'coach',    label:'Coach (max guidance)',   hint:'Strict mode, skeptical review, code review required.' },
+          ])
+          break
+
+        case 'automation_level':
+          initWizard.data.automation_level = val
+          if(val === 'coach') {
+            // Coach mode: auto-set expert/style/constraints and skip to summary
+            initWizard.data.governance_mode = 'strict'
+            initWizard.data.expert_level = 'beginner'
+            initWizard.data.output_style = 'skeptical'
+            initWizard.data.require_code_review = true
+            initWizard.step = 'summary'
+            showInitSummary()
+          } else {
+            initWizard.step = 'expert_level'
+            initSysMsg("Automation: <strong>" + val + "</strong> \\u2705<br><br><strong>Your expertise level</strong> \\u2014 affects response depth and assumptions?", [
+              { value:'beginner',     label:'Beginner',                hint:'Explain everything, assume little prior knowledge.' },
+              { value:'intermediate', label:'Intermediate (recommended)', hint:'Standard technical depth, balanced explanations.' },
+              { value:'advanced',     label:'Advanced',                hint:'Skip basics, focus on implementation details.' },
+              { value:'expert',       label:'Expert',                  hint:'Minimal explanation, code-first, challenge assumptions.' },
+            ])
+          }
+          break
+
+        case 'expert_level':
+          initWizard.data.expert_level = val
+          initWizard.step = 'output_style'
+          initSysMsg("Expert level: <strong>" + val + "</strong> \\u2705<br><br><strong>Output style</strong> \\u2014 how should the agent format responses?", [
+            { value:'explanatory',  label:'Explanatory (recommended)', hint:'Detailed explanations with reasoning.' },
+            { value:'outline',      label:'Outline',                   hint:'Bullet points and structured summaries.' },
+            { value:'skeptical',    label:'Skeptical',                 hint:'Critical review, challenge assumptions.' },
+            { value:'architecture', label:'Architecture',              hint:'Focus on design patterns and structure.' },
+            { value:'minimal',      label:'Minimal',                   hint:'Brief, code-only responses.' },
+          ])
+          break
+
+        case 'output_style':
+          initWizard.data.output_style = val
+          initWizard.step = 'extras'
+          initWizard.selectedExtras = []
+          if(initWizard.data.require_code_review) initWizard.selectedExtras.push('code-review')
+          if(initWizard.data.enforce_tdd) initWizard.selectedExtras.push('tdd')
+          initSysMsg("Style: <strong>" + val + "</strong> \\u2705<br><br><strong>Additional constraints</strong> (optional, click Continue to skip):", null, [
+            { value:'code-review', label:'Require code review', hint:'Agent must review code before accepting.' },
+            { value:'tdd',         label:'Enforce TDD',         hint:'Write failing test first, then implementation.' },
+          ])
+          break
+
+        case 'extras':
+          if(val === '__extras_done__') {
+            initWizard.messages.push({ from:'user', text: initWizard.selectedExtras.length > 0 ? initWizard.selectedExtras.join(', ') : '(none)' })
+            scrollInitChat()
+          }
+          initWizard.data.require_code_review = initWizard.selectedExtras.includes('code-review')
+          initWizard.data.enforce_tdd = initWizard.selectedExtras.includes('tdd')
+          initWizard.step = 'summary'
+          showInitSummary()
+          break
+
+        case 'confirm':
+          if(val.includes('Proceed')){
+            loading.value = true
+            try {
+              const payload = {
+                language: initWizard.data.language,
+                governance_mode: initWizard.data.governance_mode,
+                automation_level: initWizard.data.automation_level,
+                expert_level: initWizard.data.expert_level,
+                output_style: initWizard.data.output_style,
+                require_code_review: initWizard.data.require_code_review,
+                enforce_tdd: initWizard.data.enforce_tdd,
+                sync_target: initWizard.data.sync_target,
+              }
+              const d = await api('/api/init',{method:'POST',body:JSON.stringify(payload)})
+              if(d.success){ initSysMsg("\\u{1F389} HiveMind initialized successfully!<br>Your project is ready. Visit the <strong>Dashboard</strong> to see session status.")
+                loadStatus()
+                setTimeout(()=>{ initWizard.waitingInput=false; initWizard.step='done' }, 500)
+              } else { initSysMsg("\\u274C Error: " + (d.error||d.message||'Unknown error')); initWizard.step='done' }
+            } catch(e){ initSysMsg("\\u274C Failed: " + e.message); initWizard.step='done' }
+            finally { loading.value = false }
+          } else {
+            initSysMsg("Setup cancelled. No changes were made.")
+            initWizard.step = 'done'
+          }
+          break
+      }
+    }
+
+    function showInitSummary() {
+      const d = initWizard.data
+      const isCoach = d.automation_level === 'coach'
+      const summary = [
+        'Profile:     ' + d.profile,
+        'Governance:  ' + (isCoach ? 'strict (forced)' : d.governance_mode),
+        'Language:    ' + (d.language === 'en' ? 'English' : 'Ti\\u1EBFng Vi\\u1EC7t'),
+        'Automation:  ' + d.automation_level + (isCoach ? ' (max guidance)' : ''),
+        'Expert:      ' + (isCoach ? 'beginner (forced)' : d.expert_level),
+        'Style:       ' + (isCoach ? 'skeptical (forced)' : d.output_style),
+        d.require_code_review || isCoach ? '\\u2713 Code review required' : '',
+        d.enforce_tdd ? '\\u2713 TDD enforced' : '',
+      ].filter(Boolean).join('<br>')
+      initSysMsg("\\u{1F4CB} <strong>Configuration Summary</strong><br><br><code style='white-space:pre-wrap;display:block;padding:8px;background:#f9fafb;border-radius:6px;font-size:12px'>" + summary + "</code>")
+      setTimeout(()=>{
+        initWizard.messages.push({ from:'system', text:'Proceed with this configuration?', options:[
+          { value:'\\u2705 Proceed', label:'\\u2705 Proceed' },
+          { value:'\\u274C Cancel', label:'\\u274C Cancel' },
+        ]})
+        initWizard.step = 'confirm'
+        scrollInitChat()
+      }, 600)
     }
 
     // ── Settings ──
