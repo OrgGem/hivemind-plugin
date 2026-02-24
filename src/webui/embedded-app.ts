@@ -42,7 +42,7 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
   <nav class="fixed inset-y-0 left-0 w-56 bg-gray-900 text-white flex flex-col z-30">
     <div class="p-4 border-b border-gray-700">
       <h1 class="text-lg font-bold tracking-tight">&#x1F41D; HiveMind</h1>
-      <p class="text-xs text-gray-400 mt-1">Context Governance WebUI</p>
+      <p class="text-xs text-gray-400 mt-1">Standalone WebUI Server</p>
     </div>
     <div class="flex-1 overflow-y-auto py-2">
       <button v-for="item in navItems" :key="item.id"
@@ -54,7 +54,7 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
       </button>
     </div>
     <div class="p-3 border-t border-gray-700 text-xs text-gray-500">
-      Container Ready
+      Standalone Server
     </div>
   </nav>
 
@@ -121,8 +121,66 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
 
     <!-- ═══════════ INIT ═══════════ -->
     <section v-if="currentView==='init'">
-      <h2 class="text-2xl font-bold text-gray-900 mb-6">Initialize Project</h2>
-      <form @submit.prevent="runInit" class="bg-white rounded-lg shadow border p-6 max-w-2xl space-y-4">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-2xl font-bold text-gray-900">Initialize Project</h2>
+        <button @click="toggleInitWizard" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium">
+          {{ initWizard.active ? '&#x2715; Close Wizard' : '&#x1F41D; Start Setup Wizard' }}
+        </button>
+      </div>
+
+      <!-- ── Init Chat Wizard ── -->
+      <div v-if="initWizard.active" class="bg-white rounded-lg shadow border mb-6 max-w-2xl flex flex-col" style="height:560px">
+        <div class="px-4 py-3 border-b bg-gray-50 rounded-t-lg">
+          <h3 class="font-semibold text-gray-800 text-sm">&#x1F41D; HiveMind + HiveFiver v2 &#x2014; Setup Wizard</h3>
+          <p class="text-xs text-gray-500">Interactive guided setup &#x2014; mirrors CLI wizard flow</p>
+        </div>
+
+        <!-- Messages -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-3" ref="initChatBox">
+          <div v-for="(msg, i) in initWizard.messages" :key="i"
+            :class="['flex', msg.from==='system' ? 'justify-start' : 'justify-end']">
+            <div :class="['chat-bubble rounded-lg px-3 py-2 text-sm', msg.from==='system' ? 'chat-bubble-system' : 'chat-bubble-user']">
+              <div v-if="msg.options" class="space-y-1 mt-2">
+                <button v-for="opt in msg.options" :key="opt.value||opt"
+                  @click="answerInitWizard(opt.value||opt)"
+                  class="block w-full text-left px-3 py-1.5 rounded bg-white hover:bg-indigo-50 border text-xs font-medium">
+                  <span class="font-semibold">{{ opt.label||opt }}</span>
+                  <span v-if="opt.hint" class="block text-gray-400 text-xs mt-0.5">{{ opt.hint }}</span>
+                </button>
+              </div>
+              <div v-else-if="msg.checkboxes" class="space-y-1 mt-2">
+                <label v-for="cb in msg.checkboxes" :key="cb.value" class="flex items-center gap-2 px-3 py-1.5 rounded bg-white border text-xs font-medium cursor-pointer hover:bg-indigo-50">
+                  <input type="checkbox" :checked="initWizard.selectedExtras.includes(cb.value)" @change="toggleInitExtra(cb.value)" class="rounded">
+                  <span>{{ cb.label }}</span>
+                  <span v-if="cb.hint" class="text-gray-400 ml-1">&#x2014; {{ cb.hint }}</span>
+                </label>
+                <button @click="answerInitWizard('__extras_done__')" class="mt-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium">Continue &#x2192;</button>
+              </div>
+              <span v-else v-html="msg.text"></span>
+            </div>
+          </div>
+          <!-- Typing indicator -->
+          <div v-if="initWizard.typing" class="flex justify-start">
+            <div class="chat-bubble chat-bubble-system rounded-lg px-4 py-3 flex gap-1">
+              <span class="typing-dot w-2 h-2 bg-indigo-400 rounded-full inline-block"></span>
+              <span class="typing-dot w-2 h-2 bg-indigo-400 rounded-full inline-block"></span>
+              <span class="typing-dot w-2 h-2 bg-indigo-400 rounded-full inline-block"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input (not used in wizard, all option-based) -->
+        <div v-if="initWizard.waitingInput" class="border-t p-3 flex gap-2">
+          <input v-model="initWizard.inputText" @keyup.enter="answerInitWizard(initWizard.inputText)"
+            class="flex-1 border rounded-md px-3 py-2 text-sm" :placeholder="initWizard.inputPlaceholder" autofocus>
+          <button @click="answerInitWizard(initWizard.inputText)"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm">Send</button>
+        </div>
+      </div>
+
+      <!-- ── Fallback: flat form if wizard not active ── -->
+      <form v-if="!initWizard.active" @submit.prevent="runInit" class="bg-white rounded-lg shadow border p-6 max-w-2xl space-y-4">
+        <p class="text-sm text-gray-500 mb-2">Quick init with manual options &#x2014; or use the <strong>Setup Wizard</strong> above for guided setup.</p>
         <div class="grid grid-cols-2 gap-4">
           <div><label class="block text-sm font-medium text-gray-700 mb-1">Language</label>
             <select v-model="initForm.language" class="w-full border rounded-md px-3 py-2 text-sm"><option value="en">English</option><option value="vi">Ti&#x1EBF;ng Vi&#x1EC7;t</option></select></div>
@@ -178,12 +236,18 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
           <label class="flex items-center gap-2 text-sm"><input type="checkbox" v-model="settingsForm.agent_behavior.constraints.be_skeptical" class="rounded"> Be Skeptical</label>
         </div>
         <div v-if="settings.thresholds" class="border-t pt-4">
-          <h3 class="text-lg font-semibold text-gray-800 mb-3">Thresholds <span class="text-xs text-gray-400 font-normal">(read-only, edit config.json)</span></h3>
-          <div class="grid grid-cols-2 gap-2 text-sm text-gray-600">
-            <p>Drift warning: <span class="font-medium text-gray-900">{{ settings.thresholds.max_turns_before_warning }} turns</span></p>
-            <p>Long session: <span class="font-medium text-gray-900">{{ settings.thresholds.auto_compact_on_turns }} turns</span></p>
-            <p>Max lines: <span class="font-medium text-gray-900">{{ settings.thresholds.max_active_md_lines }}</span></p>
-            <p>Stale session: <span class="font-medium text-gray-900">{{ settings.thresholds.stale_session_days }} days</span></p>
+          <h3 class="text-lg font-semibold text-gray-800 mb-3">Thresholds</h3>
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="block text-xs text-gray-500 mb-1">Drift warning (turns)</label>
+              <input type="number" v-model.number="settingsForm.thresholds.max_turns_before_warning" class="w-full border rounded-md px-3 py-2 text-sm" min="1"></div>
+            <div><label class="block text-xs text-gray-500 mb-1">Long session (turns)</label>
+              <input type="number" v-model.number="settingsForm.thresholds.auto_compact_on_turns" class="w-full border rounded-md px-3 py-2 text-sm" min="1"></div>
+            <div><label class="block text-xs text-gray-500 mb-1">Max active lines</label>
+              <input type="number" v-model.number="settingsForm.thresholds.max_active_md_lines" class="w-full border rounded-md px-3 py-2 text-sm" min="1"></div>
+            <div><label class="block text-xs text-gray-500 mb-1">Stale session (days)</label>
+              <input type="number" v-model.number="settingsForm.thresholds.stale_session_days" class="w-full border rounded-md px-3 py-2 text-sm" min="1"></div>
+            <div><label class="block text-xs text-gray-500 mb-1">Commit suggestion (files)</label>
+              <input type="number" v-model.number="settingsForm.thresholds.commit_suggestion_threshold" class="w-full border rounded-md px-3 py-2 text-sm" min="1"></div>
           </div>
         </div>
         <button type="submit" :disabled="loading" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium disabled:opacity-50">
@@ -272,6 +336,7 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
             </div>
           </div>
           <button @click="downloadSkill(skill.name)" class="ml-3 shrink-0 px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded text-gray-700" title="Download">&#x2B07;&#xFE0F;</button>
+          <button v-if="skill.source==='project'" @click="deleteSkill(skill.name)" class="ml-1 shrink-0 px-2 py-1 text-xs bg-red-50 hover:bg-red-100 rounded text-red-600" title="Delete">&#x1F5D1;</button>
         </div>
       </div>
       <p v-if="skillsList.length===0 && !skillChat.active" class="text-gray-500 text-sm mt-4">No skills found. Click <em>Create Skill</em> to start!</p>
@@ -337,6 +402,7 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
             </div>
           </div>
           <button @click="downloadWorkflow(wf.name)" class="ml-3 shrink-0 px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded text-gray-700" title="Download">&#x2B07;&#xFE0F;</button>
+          <button v-if="wf.source==='project'" @click="deleteWorkflow(wf.name)" class="ml-1 shrink-0 px-2 py-1 text-xs bg-red-50 hover:bg-red-100 rounded text-red-600" title="Delete">&#x1F5D1;</button>
         </div>
       </div>
       <p v-if="workflowsList.length===0 && !wfChat.active" class="text-gray-500 text-sm mt-4">No workflows found. Click <em>Create Workflow</em> to start!</p>
@@ -346,6 +412,27 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
     <section v-if="currentView==='operations'">
       <h2 class="text-2xl font-bold text-gray-900 mb-6">Operations</h2>
       <div class="space-y-4 max-w-2xl">
+        <div class="bg-white rounded-lg shadow border p-5">
+          <h3 class="font-semibold text-gray-900 mb-2">&#x1F4E6; Compact Session</h3>
+          <p class="text-sm text-gray-600 mb-3">Archive the current session and start fresh. Preserves history and memory.</p>
+          <div class="flex gap-3 items-end flex-wrap">
+            <div class="flex-1"><label class="block text-xs text-gray-500 mb-1">Summary (optional)</label>
+              <input v-model="compactSummary" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Brief summary of what was accomplished"></div>
+            <button @click="runCompact" :disabled="loading" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm disabled:opacity-50">Compact</button>
+          </div>
+          <pre v-if="compactResult" class="mt-3 bg-gray-50 border rounded p-3 text-xs whitespace-pre-wrap">{{ JSON.stringify(compactResult,null,2) }}</pre>
+        </div>
+        <div class="bg-white rounded-lg shadow border p-5">
+          <h3 class="font-semibold text-gray-900 mb-2">&#x1F4DA; Session Archives</h3>
+          <p class="text-sm text-gray-600 mb-3">Previously archived sessions.</p>
+          <button @click="loadArchives" :disabled="loading" class="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded text-sm disabled:opacity-50 mb-3">&#x21BB; Load Archives</button>
+          <div v-if="archivesList" class="text-sm">
+            <p class="text-gray-500 mb-2">{{ archivesList.count }} archived session(s)</p>
+            <ul v-if="archivesList.archives.length > 0" class="space-y-1">
+              <li v-for="a in archivesList.archives" :key="a" class="font-mono text-xs bg-gray-50 px-2 py-1 rounded border">{{ a }}</li>
+            </ul>
+          </div>
+        </div>
         <div class="bg-white rounded-lg shadow border p-5">
           <h3 class="font-semibold text-gray-900 mb-2">&#x1F4E6; Sync Assets</h3>
           <p class="text-sm text-gray-600 mb-3">Copy packaged OpenCode assets to .opencode/ directory.</p>
@@ -387,6 +474,56 @@ export const EMBEDDED_APP_HTML = `<!DOCTYPE html>
       </div>
     </section>
 
+    <!-- ═══════════ LLM CONFIG ═══════════ -->
+    <section v-if="currentView==='llmconfig'">
+      <h2 class="text-2xl font-bold text-gray-900 mb-6">LLM Provider Configuration</h2>
+      <div class="bg-white rounded-lg shadow border p-6 max-w-2xl space-y-5">
+        <p class="text-sm text-gray-600 mb-2">Configure an <strong>OpenAI API-compatible</strong> LLM provider. This powers the interactive wizards for Init, Skill, and Workflow creation.</p>
+
+        <div class="flex items-center gap-3 p-3 rounded-lg" :class="llmForm.enabled ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'">
+          <label class="flex items-center gap-2 text-sm font-medium cursor-pointer">
+            <input type="checkbox" v-model="llmForm.enabled" class="rounded">
+            <span :class="llmForm.enabled ? 'text-green-800' : 'text-gray-600'">{{ llmForm.enabled ? '&#x2705; LLM Provider Enabled' : 'LLM Provider Disabled' }}</span>
+          </label>
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Base URL</label>
+            <input v-model="llmForm.base_url" type="text" class="w-full border rounded-md px-3 py-2 text-sm font-mono" placeholder="https://api.openai.com/v1">
+            <p class="text-xs text-gray-400 mt-1">OpenAI: https://api.openai.com/v1 &#x2022; Local: http://localhost:11434/v1 &#x2022; Any OpenAI-compatible endpoint</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+            <div class="relative">
+              <input v-model="llmForm.api_key" :type="showApiKey ? 'text' : 'password'" class="w-full border rounded-md px-3 py-2 text-sm font-mono pr-20" placeholder="sk-...">
+              <button @click="showApiKey = !showApiKey" type="button" class="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded text-gray-600">
+                {{ showApiKey ? 'Hide' : 'Show' }}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
+            <input v-model="llmForm.model" type="text" class="w-full border rounded-md px-3 py-2 text-sm font-mono" placeholder="gpt-3.5-turbo">
+            <p class="text-xs text-gray-400 mt-1">e.g. gpt-4o, gpt-3.5-turbo, deepseek-chat, llama3, etc.</p>
+          </div>
+        </div>
+
+        <div class="flex gap-3 pt-2">
+          <button @click="saveLLMConfig" :disabled="loading" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium disabled:opacity-50">
+            {{ loading ? 'Saving&#x2026;' : '&#x1F4BE; Save Configuration' }}
+          </button>
+          <button @click="testLLMConnection" :disabled="loading || !llmForm.enabled" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium disabled:opacity-50">
+            {{ loading ? 'Testing&#x2026;' : '&#x1F50C; Test Connection' }}
+          </button>
+        </div>
+
+        <div v-if="llmTestResult" class="p-3 rounded-lg text-sm" :class="llmTestResult.success ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'">
+          {{ llmTestResult.message }}
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 </div>
@@ -410,6 +547,7 @@ createApp({
       { id: 'skills',    icon: '🎯', label: 'Skills' },
       { id: 'workflows', icon: '🔗', label: 'Workflows' },
       { id: 'operations',icon: '🛠️', label: 'Operations' },
+      { id: 'llmconfig', icon: '🤖', label: 'LLM Config' },
       { id: 'envconfig', icon: '📋', label: 'Env Config' },
     ]
 
@@ -445,12 +583,235 @@ createApp({
       } catch(e){showToast('Init failed','error')} finally{loading.value=false}
     }
 
+    // ══════════ INIT CHAT WIZARD ══════════
+    const initChatBox = ref(null)
+    const initWizard = reactive({
+      active: false, messages: [], step: '', typing: false,
+      waitingInput: false, inputText: '', inputPlaceholder: '',
+      selectedExtras: [],
+      data: {
+        profile: 'intermediate',
+        governance_mode: 'assisted', language: 'en', automation_level: 'assisted',
+        expert_level: 'intermediate', output_style: 'explanatory',
+        require_code_review: false, enforce_tdd: false,
+        sync_target: 'project'
+      },
+      presets: null
+    })
+
+    function scrollInitChat() { nextTick(()=>{ if(initChatBox.value) initChatBox.value.scrollTop = initChatBox.value.scrollHeight }) }
+
+    function initSysMsg(text, options, checkboxes) {
+      initWizard.typing = true; scrollInitChat()
+      setTimeout(()=>{
+        initWizard.typing = false
+        initWizard.messages.push({ from:'system', text, options: options||null, checkboxes: checkboxes||null })
+        scrollInitChat()
+      }, 400)
+    }
+
+    async function toggleInitWizard() {
+      if(initWizard.active){ initWizard.active=false; return }
+      initWizard.active = true; initWizard.messages = []; initWizard.step = 'profile'
+      initWizard.selectedExtras = []
+      initWizard.data = {
+        profile:'intermediate', governance_mode:'assisted', language:'en',
+        automation_level:'assisted', expert_level:'intermediate', output_style:'explanatory',
+        require_code_review:false, enforce_tdd:false, sync_target:'project'
+      }
+      // Fetch presets from API
+      try { initWizard.presets = await api('/api/init/wizard') } catch(e){ initWizard.presets = null }
+      initWizard.waitingInput = false
+      initSysMsg("Welcome! Let's set up HiveMind together. \\u{1F41D}\\u{1F680}<br><br><strong>What kind of developer are you?</strong>", [
+        { value:'beginner', label:'Beginner', hint:'Learning with AI. Maximum guidance, asks before acting.' },
+        { value:'intermediate', label:'Intermediate (recommended)', hint:'Comfortable with AI tools. Balanced automation.' },
+        { value:'advanced', label:'Advanced', hint:'Experienced. Permissive, outline responses, full control.' },
+        { value:'expert', label:'Expert', hint:'Senior developer. Minimal guidance, terse responses.' },
+        { value:'coach', label:'Coach (max guidance)', hint:'Strict governance, skeptical, asks everything.' },
+      ])
+    }
+
+    function toggleInitExtra(val) {
+      const idx = initWizard.selectedExtras.indexOf(val)
+      if(idx === -1) initWizard.selectedExtras.push(val)
+      else initWizard.selectedExtras.splice(idx, 1)
+    }
+
+    function getPresetDefaults(profileKey) {
+      if(initWizard.presets && initWizard.presets.profiles && initWizard.presets.profiles[profileKey]) {
+        return initWizard.presets.profiles[profileKey]
+      }
+      // Fallback defaults
+      const defaults = {
+        beginner:      { governance_mode:'assisted', automation_level:'assisted', expert_level:'beginner',     output_style:'explanatory', require_code_review:false, enforce_tdd:false },
+        intermediate:  { governance_mode:'assisted', automation_level:'assisted', expert_level:'intermediate', output_style:'explanatory', require_code_review:false, enforce_tdd:false },
+        advanced:      { governance_mode:'permissive',automation_level:'guided', expert_level:'advanced',     output_style:'outline',      require_code_review:false, enforce_tdd:false },
+        expert:        { governance_mode:'permissive',automation_level:'manual', expert_level:'expert',       output_style:'minimal',      require_code_review:false, enforce_tdd:false },
+        coach:         { governance_mode:'strict',    automation_level:'coach',  expert_level:'beginner',     output_style:'skeptical',    require_code_review:true,  enforce_tdd:false },
+      }
+      return defaults[profileKey] || defaults.intermediate
+    }
+
+    async function answerInitWizard(answer) {
+      const val = (typeof answer === 'string' ? answer : '').trim()
+      if(!val && initWizard.step !== 'extras') return
+      initWizard.inputText = ''
+      if(val && val !== '__extras_done__') initWizard.messages.push({ from:'user', text: val })
+      scrollInitChat()
+
+      const isCoach = initWizard.data.automation_level === 'coach'
+
+      switch(initWizard.step) {
+        case 'profile': {
+          initWizard.data.profile = val
+          const p = getPresetDefaults(val)
+          Object.assign(initWizard.data, p)
+          initWizard.step = 'governance_mode'
+          initSysMsg("Profile: <strong>" + val + "</strong> \\u2705<br><br><strong>Governance mode</strong> \\u2014 how strict should session enforcement be?", [
+            { value:'assisted', label:'Assisted (recommended)', hint:'Session starts OPEN. Warns on drift but never blocks.' },
+            { value:'strict',   label:'Strict',                 hint:'Session starts LOCKED. Must declare_intent before writing.' },
+            { value:'permissive',label:'Permissive',            hint:'Always OPEN. Silent tracking only, zero pressure.' },
+          ])
+          break
+        }
+
+        case 'governance_mode':
+          initWizard.data.governance_mode = val
+          initWizard.step = 'language'
+          initSysMsg("Governance: <strong>" + val + "</strong> \\u2705<br><br><strong>Language</strong> for agent responses?", [
+            { value:'en', label:'English' },
+            { value:'vi', label:'Ti\\u1EBFng Vi\\u1EC7t' },
+          ])
+          break
+
+        case 'language':
+          initWizard.data.language = val
+          initWizard.step = 'automation_level'
+          initSysMsg("Language: <strong>" + (val==='en'?'English':'Ti\\u1EBFng Vi\\u1EC7t') + "</strong> \\u2705<br><br><strong>Automation level</strong> \\u2014 how much should HiveMind intervene?", [
+            { value:'manual',   label:'Manual',                hint:'Minimal automation. You drive everything.' },
+            { value:'guided',   label:'Guided',                hint:'Gentle nudges when drift detected.' },
+            { value:'assisted', label:'Assisted (recommended)',hint:'Active guidance with evidence-based warnings.' },
+            { value:'full',     label:'Full',                  hint:'Maximum governance. System argues back with evidence.' },
+            { value:'coach',    label:'Coach (max guidance)',   hint:'Strict mode, skeptical review, code review required.' },
+          ])
+          break
+
+        case 'automation_level':
+          initWizard.data.automation_level = val
+          if(val === 'coach') {
+            // Coach mode: auto-set expert/style/constraints and skip to summary
+            initWizard.data.governance_mode = 'strict'
+            initWizard.data.expert_level = 'beginner'
+            initWizard.data.output_style = 'skeptical'
+            initWizard.data.require_code_review = true
+            initWizard.step = 'summary'
+            showInitSummary()
+          } else {
+            initWizard.step = 'expert_level'
+            initSysMsg("Automation: <strong>" + val + "</strong> \\u2705<br><br><strong>Your expertise level</strong> \\u2014 affects response depth and assumptions?", [
+              { value:'beginner',     label:'Beginner',                hint:'Explain everything, assume little prior knowledge.' },
+              { value:'intermediate', label:'Intermediate (recommended)', hint:'Standard technical depth, balanced explanations.' },
+              { value:'advanced',     label:'Advanced',                hint:'Skip basics, focus on implementation details.' },
+              { value:'expert',       label:'Expert',                  hint:'Minimal explanation, code-first, challenge assumptions.' },
+            ])
+          }
+          break
+
+        case 'expert_level':
+          initWizard.data.expert_level = val
+          initWizard.step = 'output_style'
+          initSysMsg("Expert level: <strong>" + val + "</strong> \\u2705<br><br><strong>Output style</strong> \\u2014 how should the agent format responses?", [
+            { value:'explanatory',  label:'Explanatory (recommended)', hint:'Detailed explanations with reasoning.' },
+            { value:'outline',      label:'Outline',                   hint:'Bullet points and structured summaries.' },
+            { value:'skeptical',    label:'Skeptical',                 hint:'Critical review, challenge assumptions.' },
+            { value:'architecture', label:'Architecture',              hint:'Focus on design patterns and structure.' },
+            { value:'minimal',      label:'Minimal',                   hint:'Brief, code-only responses.' },
+          ])
+          break
+
+        case 'output_style':
+          initWizard.data.output_style = val
+          initWizard.step = 'extras'
+          initWizard.selectedExtras = []
+          if(initWizard.data.require_code_review) initWizard.selectedExtras.push('code-review')
+          if(initWizard.data.enforce_tdd) initWizard.selectedExtras.push('tdd')
+          initSysMsg("Style: <strong>" + val + "</strong> \\u2705<br><br><strong>Additional constraints</strong> (optional, click Continue to skip):", null, [
+            { value:'code-review', label:'Require code review', hint:'Agent must review code before accepting.' },
+            { value:'tdd',         label:'Enforce TDD',         hint:'Write failing test first, then implementation.' },
+          ])
+          break
+
+        case 'extras':
+          if(val === '__extras_done__') {
+            initWizard.messages.push({ from:'user', text: initWizard.selectedExtras.length > 0 ? initWizard.selectedExtras.join(', ') : '(none)' })
+            scrollInitChat()
+          }
+          initWizard.data.require_code_review = initWizard.selectedExtras.includes('code-review')
+          initWizard.data.enforce_tdd = initWizard.selectedExtras.includes('tdd')
+          initWizard.step = 'summary'
+          showInitSummary()
+          break
+
+        case 'confirm':
+          if(val.includes('Proceed')){
+            loading.value = true
+            try {
+              const payload = {
+                language: initWizard.data.language,
+                governance_mode: initWizard.data.governance_mode,
+                automation_level: initWizard.data.automation_level,
+                expert_level: initWizard.data.expert_level,
+                output_style: initWizard.data.output_style,
+                require_code_review: initWizard.data.require_code_review,
+                enforce_tdd: initWizard.data.enforce_tdd,
+                sync_target: initWizard.data.sync_target,
+              }
+              const d = await api('/api/init',{method:'POST',body:JSON.stringify(payload)})
+              if(d.success){ initSysMsg("\\u{1F389} HiveMind initialized successfully!<br>Your project is ready. Visit the <strong>Dashboard</strong> to see session status.")
+                loadStatus()
+                setTimeout(()=>{ initWizard.waitingInput=false; initWizard.step='done' }, 500)
+              } else { initSysMsg("\\u274C Error: " + (d.error||d.message||'Unknown error')); initWizard.step='done' }
+            } catch(e){ initSysMsg("\\u274C Failed: " + e.message); initWizard.step='done' }
+            finally { loading.value = false }
+          } else {
+            initSysMsg("Setup cancelled. No changes were made.")
+            initWizard.step = 'done'
+          }
+          break
+      }
+    }
+
+    function showInitSummary() {
+      const d = initWizard.data
+      const isCoach = d.automation_level === 'coach'
+      const summary = [
+        'Profile:     ' + d.profile,
+        'Governance:  ' + (isCoach ? 'strict (forced)' : d.governance_mode),
+        'Language:    ' + (d.language === 'en' ? 'English' : 'Ti\\u1EBFng Vi\\u1EC7t'),
+        'Automation:  ' + d.automation_level + (isCoach ? ' (max guidance)' : ''),
+        'Expert:      ' + (isCoach ? 'beginner (forced)' : d.expert_level),
+        'Style:       ' + (isCoach ? 'skeptical (forced)' : d.output_style),
+        d.require_code_review || isCoach ? '\\u2713 Code review required' : '',
+        d.enforce_tdd ? '\\u2713 TDD enforced' : '',
+      ].filter(Boolean).join('<br>')
+      initSysMsg("\\u{1F4CB} <strong>Configuration Summary</strong><br><br><code style='white-space:pre-wrap;display:block;padding:8px;background:#f9fafb;border-radius:6px;font-size:12px'>" + summary + "</code>")
+      setTimeout(()=>{
+        initWizard.messages.push({ from:'system', text:'Proceed with this configuration?', options:[
+          { value:'\\u2705 Proceed', label:'\\u2705 Proceed' },
+          { value:'\\u274C Cancel', label:'\\u274C Cancel' },
+        ]})
+        initWizard.step = 'confirm'
+        scrollInitChat()
+      }, 600)
+    }
+
     // ── Settings ──
     const settings = reactive({ initialized:false })
     const settingsForm = reactive({
       governance_mode:'assisted', language:'en', automation_level:'assisted',
       agent_behavior:{ expert_level:'intermediate', output_style:'explanatory',
-        constraints:{ require_code_review:false, enforce_tdd:false, explain_reasoning:true, be_skeptical:false }}
+        constraints:{ require_code_review:false, enforce_tdd:false, explain_reasoning:true, be_skeptical:false }},
+      thresholds:{ max_turns_before_warning:5, auto_compact_on_turns:20, max_active_md_lines:50, stale_session_days:3, commit_suggestion_threshold:5 }
     })
     async function loadSettings() {
       try {
@@ -463,6 +824,7 @@ createApp({
             settingsForm.agent_behavior.output_style=d.agent_behavior.output_style
             if(d.agent_behavior.constraints) Object.assign(settingsForm.agent_behavior.constraints, d.agent_behavior.constraints)
           }
+          if(d.thresholds) Object.assign(settingsForm.thresholds, d.thresholds)
         }
       } catch(e){showToast('Settings load failed','error')}
     }
@@ -777,10 +1139,45 @@ createApp({
 
     function downloadWorkflow(name) { window.open('/api/workflows/' + encodeURIComponent(name) + '/download') }
 
+    async function deleteSkill(name) {
+      if(!confirm('Delete skill "' + name + '"?')) return
+      try {
+        const d = await api('/api/skills/' + encodeURIComponent(name), { method: 'DELETE' })
+        showToast(d.message || 'Deleted', d.success ? 'success' : 'error')
+        loadSkills()
+      } catch(e){ showToast('Delete failed','error') }
+    }
+
+    async function deleteWorkflow(name) {
+      if(!confirm('Delete workflow "' + name + '"?')) return
+      try {
+        const d = await api('/api/workflows/' + encodeURIComponent(name), { method: 'DELETE' })
+        showToast(d.message || 'Deleted', d.success ? 'success' : 'error')
+        loadWorkflows()
+      } catch(e){ showToast('Delete failed','error') }
+    }
+
     // ── Operations ──
     const opsForm = reactive({ syncTarget:'project', syncOverwrite:false, syncClean:false })
     const syncResult = ref(null)
     const migrateResult = ref(null)
+    const compactSummary = ref('')
+    const compactResult = ref(null)
+    const archivesList = ref(null)
+
+    async function runCompact() {
+      loading.value=true; compactResult.value=null
+      try {
+        compactResult.value = await api('/api/compact',{method:'POST',body:JSON.stringify({summary:compactSummary.value||undefined})})
+        showToast(compactResult.value.success ? 'Session compacted' : 'Compaction failed', compactResult.value.success?'success':'error')
+        loadStatus()
+      } catch(e){showToast('Compaction failed','error')} finally{loading.value=false}
+    }
+    async function loadArchives() {
+      loading.value=true
+      try { archivesList.value = await api('/api/archives') }
+      catch(e){showToast('Archives load failed','error')} finally{loading.value=false}
+    }
 
     async function runSyncAssets() {
       loading.value=true; syncResult.value=null
@@ -812,6 +1209,41 @@ createApp({
       catch(e){ showToast('Env config load failed','error') }
     }
 
+    // ── LLM Config ──
+    const showApiKey = ref(false)
+    const llmTestResult = ref(null)
+    const llmForm = reactive({
+      api_key: '', base_url: 'https://api.openai.com/v1', model: 'gpt-3.5-turbo', enabled: false
+    })
+    async function loadLLMConfig() {
+      try {
+        const d = await api('/api/llm/config')
+        llmForm.api_key = d.api_key || ''
+        llmForm.base_url = d.base_url || 'https://api.openai.com/v1'
+        llmForm.model = d.model || 'gpt-3.5-turbo'
+        llmForm.enabled = d.enabled || false
+      } catch(e){ /* ignore */ }
+    }
+    async function saveLLMConfig() {
+      loading.value = true; llmTestResult.value = null
+      try {
+        const d = await api('/api/llm/config', { method: 'PUT', body: JSON.stringify(llmForm) })
+        showToast(d.message || 'Saved', d.success ? 'success' : 'error')
+      } catch(e){ showToast('Save failed','error') } finally { loading.value = false }
+    }
+    async function testLLMConnection() {
+      loading.value = true; llmTestResult.value = null
+      try {
+        const d = await api('/api/llm/chat', {
+          method: 'POST',
+          body: JSON.stringify({ messages: [{ role: 'user', content: 'Hello, respond with just "OK" to confirm the connection works.' }] })
+        })
+        if(d.success) { llmTestResult.value = { success: true, message: '\\u2705 Connection successful! Response: ' + (d.content || '').slice(0, 100) } }
+        else { llmTestResult.value = { success: false, message: '\\u274C ' + (d.error || 'Unknown error') } }
+      } catch(e){ llmTestResult.value = { success: false, message: '\\u274C Connection failed: ' + e.message } }
+      finally { loading.value = false }
+    }
+
     // ── Lifecycle ──
     watch(currentView, v => {
       if(v==='dashboard') loadStatus()
@@ -819,6 +1251,7 @@ createApp({
       if(v==='skills') loadSkills()
       if(v==='workflows') loadWorkflows()
       if(v==='envconfig') loadEnvConfig()
+      if(v==='llmconfig') loadLLMConfig()
     })
     onMounted(()=>{ loadStatus() })
 
@@ -826,12 +1259,15 @@ createApp({
       currentView, loading, toast, navItems, showToast,
       status, loadStatus,
       initForm, runInit,
+      initWizard, initChatBox, toggleInitWizard, answerInitWizard, toggleInitExtra,
       settings, settingsForm, loadSettings, saveSettings,
       scanForm, scanResult, runScan,
-      skillsList, skillChat, skillChatBox, startSkillChat, answerSkillChat, downloadSkill, loadSkills,
-      workflowsList, wfChat, wfChatBox, startWorkflowChat, answerWfChat, downloadWorkflow, loadWorkflows,
+      skillsList, skillChat, skillChatBox, startSkillChat, answerSkillChat, downloadSkill, deleteSkill, loadSkills,
+      workflowsList, wfChat, wfChatBox, startWorkflowChat, answerWfChat, downloadWorkflow, deleteWorkflow, loadWorkflows,
       opsForm, syncResult, migrateResult, runSyncAssets, runMigrate, confirmPurge,
+      compactSummary, compactResult, runCompact, archivesList, loadArchives,
       envConfig, loadEnvConfig,
+      llmForm, showApiKey, llmTestResult, loadLLMConfig, saveLLMConfig, testLLMConnection,
     }
   }
 }).mount('#app')
